@@ -1,4 +1,5 @@
-# Ignore .vscode folder
+# Ignore environment
+__pycache__/
 .vscode/
 
 # Ignore all files in logs but keep the folder
