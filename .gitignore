@@ -13,3 +13,6 @@ models/*
 # Ignore all files in configs except example.yaml
 configs/*
 !configs/example.yaml
+
+inputs/*
+!inputs/

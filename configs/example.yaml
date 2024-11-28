@@ -2,18 +2,18 @@
 
 models:
   # Path to transcription model directory (used for processor, tokenizer, and model)
-  transcription: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/end-to-end/models/i6eq5plg/checkpoint-224228/"
+  transcription: "models/transcription_nievre"
   
   # Paths to various model weights
-  line_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/line_segmentation/training/runs_archive/old/r_ls_31/model.pth"
-  row_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/line_segmentation/training/runs_archive/r_rs_1/model.pth"
-  column_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/line_segmentation/training/runs_archive/r_cs_3/model.pth"
+  line_extraction: "models/textlines_nievre/model.pth"
+  row_extraction: "models/rows_nievre/model.pth"
+  column_extraction: "models/columns_nievre/model.pth"
 
 directories:
   # Base directories for input/output
-  input: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Data/Raw/Nièvre_pipeline_test/"
-  output: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Output/Nièvre Final Run/output_cli/"
+  input: "examples/inputs"
+  output: "examples/outputs"
   
   # Configuration files
-  page_classification: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/page_classification.csv"
-  table_guide: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Document_Analysis/table_guide.csv"
+  page_classification: "classification/page_classifications.csv"
+  table_guide: "classification/table_layouts.csv"
