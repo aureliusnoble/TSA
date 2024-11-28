@@ -1,0 +1,14 @@
+# Ignore .vscode folder
+.vscode/
+
+# Ignore all files in logs but keep the folder
+logs/*
+!logs/
+
+# Ignore all files in models but keep the folder
+models/*
+!models/
+
+# Ignore all files in configs except example.yaml
+configs/*
+!configs/example.yaml
