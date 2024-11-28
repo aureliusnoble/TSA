@@ -7,11 +7,13 @@ logs/*
 !logs/
 
 # Ignore all files in models but keep the folder
-models/*
-!models/
+
 
 # Ignore all files in configs except example.yaml
 configs/*
 !configs/example.yaml
 
 examples/outputs/*
+
+models/*
+!models/

@@ -9,3 +9,6 @@
 To do:
 
 In the next version we should have column headers, can use these as well as position
+
+
+#checksums, check if we already have models
