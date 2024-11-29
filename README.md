@@ -17,6 +17,7 @@ A comprehensive computer vision pipeline for the extraction and digitization of 
     - [Classification Schema](#classification-schema)
 5. [Pipeline Configuration](#pipeline-configuration)
 6. [Running Inference](#running-inference)
+    - [HPC Inference](#hpc-inference)
 7. [Output Structure](#output-structure)
 8. [Training](#training)
 9. [Future Development](#future-development)
@@ -226,6 +227,12 @@ python inference.py --config configs/example.yaml -v
 ```
 
 Logs are saved to `logs/inference.py`. If you encounter issues please check here.
+
+### HPC Inference
+
+If you are running inference on an HPC you will need to submit a job script which tells the HPC to run the `inference.py` script on a GPU. For Slurm systems this can be achieved with `sbatch` or through a GUI (depending on the HPC). An example job submission script is included at `hpc_job.sh`.
+
+Simply run `sbatch hpc_job.sh` in the terminal.
 
 ## Output Structure
 
