@@ -167,6 +167,8 @@ File,Relative Path,Type
 "Brinon-sur-Beuvron_1811-1819_3Q2_407_page12.jpg","Brinon-sur-Beuvron/1811-1819/Brinon-sur-Beuvron_1811-1819_3Q2_407_page12.jpg","1A"
 ```
 
+There is a full classification of the files from Nievre in `layout_classifications/page_classification_nievre.csv`.
+
 **Table Layout Schema**
 - Location: `layout_classification/table_layouts.csv`
 - Purpose: Defines the expected column structures for each table type.
@@ -258,6 +260,9 @@ Château-Chinon_1857-1863_3Q5_699_page3.jpg,col1_row1_page3.jpg,1,1,100,150,200,
 Planned enhancements to the TSA Processing Pipeline include:
 
 - Column Header Text Detection: Automate the assignment of column headers based on detected text.
+- Include transcription model for all departments.
+- Include download of original images for each department. 
+- Include download of output database for each department.
 
 ## Training
 
