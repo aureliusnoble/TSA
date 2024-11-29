@@ -2,6 +2,7 @@
 
 A comprehensive computer vision pipeline for the extraction and digitization of historical tabular data from French inheritance records (*Tables des Successions et Absences*). This system implements a multi-stage deep learning approach combining document layout analysis, table structure detection, and handwritten text recognition (HTR).
 
+![Example Image](example.png)
 
 ## Table of Contents
 
@@ -44,7 +45,7 @@ The TSA Processing Pipeline follows a sequential processing architecture with th
    - *Data Validation*: Ensures that the reconstructed data adheres to predefined schemas.
    - *Structured Output Generation*: Produces CSV files containing the digitized and structured data.
 
-![Example Image](example.png)
+
 
 ## System Requirements
 
