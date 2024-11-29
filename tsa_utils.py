@@ -1,3 +1,5 @@
+# tsa_utils.py
+
 import pandas as pd
 import os
 import csv
@@ -1325,7 +1327,7 @@ class HandwrittenTextRecognition:
         # Get Inputs
         pixel_values = processor(image, return_tensors="pt").pixel_values.to(device)
         # Generate Tokens
-        generated_ids = model.generate(pixel_values, num_beams=1, max_length=128, length_penalty = None, early_stopping = False)
+        generated_ids = model.generate(pixel_values, num_beams=1, max_length=128, length_penalty = 1.0, early_stopping = False)
         # Convert to Text
         generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 

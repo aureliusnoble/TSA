@@ -15,5 +15,5 @@ directories:
   output: "examples/outputs"
   
   # Configuration files
-  page_classification: "classification/page_classifications.csv"
-  table_guide: "classification/table_layouts.csv"
+  page_classification: "layout_classification/page_classifications.csv"
+  table_guide: "layout_classification/table_layouts.csv"

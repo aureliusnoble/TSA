@@ -1,3 +1,5 @@
+# inference.py
+
 import argparse
 import logging
 import os
@@ -14,7 +16,7 @@ import textwrap
 from rich.console import Console
 from tqdm import tqdm
 from transformers import (AutoTokenizer, TrOCRProcessor,
-                        VisionEncoderDecoderModel)
+                          VisionEncoderDecoderModel)
 
 import tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
@@ -73,6 +75,7 @@ def configure_logging(verbose: bool = False):
     doc_ufcn_logger.handlers = [logging.NullHandler()]
     
     return pipeline_logger
+
 class ConfigurationError(Exception):
     """Custom exception for configuration-related errors"""
     pass
@@ -106,6 +109,7 @@ def validate_config_path(config_path: str) -> None:
             f"Configuration file exists but is not readable: '{config_path}'\n"
             "Please check file permissions and ensure the process has read access."
         )
+
 class ModelPaths(BaseModel):
     """Configuration for model paths"""
     transcription: str = Field(..., description="Path to transcription model")
@@ -134,6 +138,20 @@ class Pipeline:
         """Initialize pipeline with configuration"""
         self.config = self._load_config(config_path)
         self.device = torch.device(self.config.device)
+        
+        # **Added Logging for Device Information**
+        logger.info(f"Running on device: {self.device}")
+        if self.device.type == 'cuda':
+            try:
+                gpu_name = torch.cuda.get_device_name(self.device)
+                logger.info(f"GPU is enabled: {gpu_name}")
+            except Exception as e:
+                logger.warning(f"CUDA device detected but failed to get device name: {e}")
+                logger.info("GPU is enabled")
+        else:
+            logger.info("GPU is not enabled")
+        # **End of Added Logging**
+        
         self._initialize_components()
         
     def _load_config(self, config_path: str) -> Config:
