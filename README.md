@@ -225,6 +225,8 @@ python inference.py --config configs/example.yaml
 python inference.py --config configs/example.yaml -v
 ```
 
+Logs are saved to `logs/inference.py`. If you encounter issues please check here.
+
 ## Output Structure
 
 After processing, the pipeline generates structured outputs organized as follows:
