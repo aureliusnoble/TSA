@@ -18,7 +18,7 @@ from tqdm import tqdm
 from transformers import (AutoTokenizer, TrOCRProcessor,
                           VisionEncoderDecoderModel)
 
-import tsa_utils as tsa
+import src.tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
 import pandas as pd
 
