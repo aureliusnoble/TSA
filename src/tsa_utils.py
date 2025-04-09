@@ -1213,6 +1213,8 @@ class TableSegment:
             y, x = int(info[1][1:]), int(info[2][1:])
             w, h = int(info[3][1:]), int(info[4][1:])
 
+            header = len(info) == 7
+
             # Calculate the center y and slightly adjusted x
             y_pos = y + h / 2
             x_pos = x + 10
@@ -1225,7 +1227,10 @@ class TableSegment:
                 if cell_x <= x_pos < cell_x + cell_w and cell_y <= y_pos < cell_y + cell_h:
                     matched = True  # Update flag on match
                     # Create new filename with the grid cell key as prefix
-                    new_file_name = f"{key}_{file_name}"
+                    if header:
+                        new_file_name = f"{key}_header_{file_name}"
+                    else:
+                        new_file_name = f"{key}_{file_name}"
                     old_file_path = os.path.join(directory, file_name)
                     new_file_path = os.path.join(directory, new_file_name)
 
@@ -1242,8 +1247,8 @@ class TableSegment:
         return renamed_files
 
 class LineDetection:
-    def extract_textlines(self, image, polygons, output_dir, filename, model, padding):
-        textline_polygons = polygons[1]
+    def extract_textlines(self, image, polygons, output_dir, filename, model, padding, category):
+        textline_polygons = polygons[category]
         #base_filename = os.path.splitext(filename)[0]
         #output_subfolder = os.path.join(output_dir, base_filename)
         base_filename = os.path.splitext(os.path.basename(filename))[0]
@@ -1256,8 +1261,11 @@ class LineDetection:
             x, y, w, h = cv2.boundingRect(polygon_arr)
             sub_image = image[y:y+h+padding, x:x+w+padding] # I added a padding around the box.
         
-            key = f"y{y}_x{x}_w{w}_h{h}"
-        
+            if category == 1:
+                key = f"y{y}_x{x}_w{w}_h{h}"
+            elif category ==2:
+                key = f"y{y}_x{x}_w{w}_h{h}__header"
+
             output_filename = f"{base_filename}_{key}.png"
             output_path = os.path.join(output_subfolder, output_filename)
             cv2.imwrite(output_path, sub_image)

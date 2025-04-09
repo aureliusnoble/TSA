@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, Union, Any
 import cv2
 import shutil
 import torch
@@ -17,10 +17,12 @@ from rich.console import Console
 from tqdm import tqdm
 from transformers import (AutoTokenizer, TrOCRProcessor,
                           VisionEncoderDecoderModel)
+from PIL import Image
 
 import src.tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
 import pandas as pd
+from recognise import TextRecognizer
 
 # Configure logging - only show warnings and errors in console, full logs in file
 logging.basicConfig(
@@ -112,7 +114,7 @@ def validate_config_path(config_path: str) -> None:
 
 class ModelPaths(BaseModel):
     """Configuration for model paths"""
-    transcription: str = Field(..., description="Path to transcription model")
+    transcription: Union[str, Dict[str, Any]] = Field(..., description="Path to transcription model or config dict")
     line_extraction: str = Field(..., description="Path to line extraction model")
     row_extraction: str = Field(..., description="Path to row extraction model")
     column_extraction: str = Field(..., description="Path to column extraction model")
@@ -121,6 +123,7 @@ class DirectoryPaths(BaseModel):
     """Configuration for directory paths"""
     input: str = Field(..., description="Input directory containing images")
     output: str = Field(..., description="Output directory for results")
+    temp: Optional[str] = Field(None, description="Temporary directory for intermediate files")
     page_classification: str = Field(..., description="Path to page classification CSV")
     table_guide: str = Field(..., description="Path to table guide CSV")
 
@@ -220,24 +223,35 @@ class Pipeline:
                 
             # Validate model paths exist
             for model_type, path in config.models.dict().items():
-                model_path = Path(path)
+                if model_type == 'transcription':
+                    # Handle both string and dict formats for transcription
+                    if isinstance(path, dict) and 'path' in path:
+                        model_path = Path(path['path'])
+                    else:
+                        model_path = Path(path)
+                else:
+                    model_path = Path(path)
+                    
                 if not model_path.exists():
-                    error_msg = f"Model path for {model_type} does not exist: {path}"
+                    error_msg = f"Model path for {model_type} does not exist: {model_path}"
                     logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
                     
             # Validate directory paths exist or can be created
             for dir_type, path in config.directories.dict().items():
+                if path is None:
+                    continue  # Skip None values (e.g., optional temp directory)
+                    
                 dir_path = Path(path)
                 if dir_type == 'input' and not dir_path.exists():
                     error_msg = f"Input directory does not exist: {path}"
                     logger.error(error_msg)
                     raise FileNotFoundError(error_msg)
-                elif dir_type == 'output':
+                elif dir_type in ('output', 'temp'):
                     try:
                         dir_path.mkdir(parents=True, exist_ok=True)
                     except Exception as e:
-                        error_msg = f"Cannot create output directory {path}: {e}"
+                        error_msg = f"Cannot create {dir_type} directory {path}: {e}"
                         logger.error(error_msg)
                         raise PermissionError(error_msg) from e
                         
@@ -279,7 +293,7 @@ class Pipeline:
         """Initialize all ML models"""
         try:
             # Line extraction model
-            self.line_model = DocUFCN(2, 768, self.device)
+            self.line_model = DocUFCN(3, 768, self.device)
             self.line_model.load(
                 Path(self.config.models.line_extraction),
                 mean=[228, 228, 228],
@@ -301,22 +315,26 @@ class Pipeline:
                 [71, 71, 71]
             )
 
-            # Transcription models
-            self.processor = TrOCRProcessor.from_pretrained(
-                self.config.models.transcription,
-                local_files_only=True
-            )
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.config.models.transcription,
-                local_files_only=True
-            )
-            self.transcription_model = VisionEncoderDecoderModel.from_pretrained(
-                self.config.models.transcription,
-                local_files_only=True,
-                torch_dtype=torch.float16
-            )
-            self.transcription_model.to(device=self.device)
-            self.transcription_model.eval()
+            # Initialize the TextRecognizer based on configuration
+            # Handle both string path and dictionary configurations
+            transcription_config = self.config.models.transcription
+            if isinstance(transcription_config, str):
+                # Legacy path-only format
+                model_path = transcription_config
+                recognizer_args = {"device": str(self.device)}  # Convert device to string
+            else:
+                # New dictionary format with parameters
+                model_path = transcription_config.get("path")
+                recognizer_args = {
+                    "batch_size": transcription_config.get("batch_size", 20),
+                    "precision": transcription_config.get("precision", "half"),
+                    "beam_num": transcription_config.get("beam_num", 2),
+                    "device": str(self.device)  # Convert device to string
+                }
+            
+            # Initialize the text recognizer
+            self.text_recognizer = TextRecognizer(model_path, **recognizer_args)
+            logger.info(f"Initialized TextRecognizer with parameters: {recognizer_args}")
 
         except Exception as e:
             logger.error(f"Failed to initialize models: {e}")
@@ -414,17 +432,31 @@ class Pipeline:
         return pending_images, skipped_count
 
     def _create_output_structure(self, image_path: Path) -> Path:
-        """Create and return the output directory structure"""
-        municipality = image_path.parent.parent.name
-        year = image_path.parent.name
+        """
+        Create and return the temporary directory structure for line images
         
-        # Create base output directory for text lines
-        text_lines_dir = Path(self.config.directories.output) / "text_lines"
-        if os.path.exists(text_lines_dir):
-            shutil.rmtree(text_lines_dir)  # Recursively delete the directory
-        text_lines_dir.mkdir(parents=True, exist_ok=True)
+        Args:
+            image_path: Path to the image being processed
+            
+        Returns:
+            Path: Path to the temporary directory for text line images
+        """
+        # Determine temp directory path - use configured path or default to output/text_lines
+        if self.config.directories.temp:
+            temp_base_dir = Path(self.config.directories.temp) / "text_lines"
+            logger.debug(f"Using configured temp directory: {temp_base_dir}")
+        else:
+            temp_base_dir = Path(self.config.directories.output) / "text_lines"
+            logger.debug(f"Using default temp directory in output path: {temp_base_dir}")
         
-        return text_lines_dir
+        # Clean up existing directory if it exists
+        if os.path.exists(temp_base_dir):
+            shutil.rmtree(temp_base_dir)  # Recursively delete the directory
+            
+        # Create temp directory
+        temp_base_dir.mkdir(parents=True, exist_ok=True)
+        
+        return temp_base_dir
 
     def process_image(self, image_path: Path):
         """Process a single image through the pipeline"""
@@ -436,7 +468,7 @@ class Pipeline:
 
             # Create output directory structure
             output_dir = self._create_output_structure(image_path)
-            logger.debug(f"Created output directory: {output_dir}")
+            logger.debug(f"Created temporary directory: {output_dir}")
 
             # Binarization
             image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -451,7 +483,13 @@ class Pipeline:
             # Extract text lines
             self.ld.extract_textlines(
                 image, polygons, str(output_dir), image_path.name,
-                self.line_model, padding=0
+                self.line_model, padding=0, category=1
+            )
+
+            #Extract Headers
+            self.ld.extract_textlines(
+                image, polygons, str(output_dir), image_path.name,
+                self.line_model, padding=0, category=2
             )
 
             # Page segmentation
@@ -506,25 +544,45 @@ class Pipeline:
         return self.ts.find_grid_cells(bbox_row_adj, bbox_col_adj)
 
     def _process_transcriptions(self, renamed_files, directory, filename):
-        """Process transcriptions for renamed files"""
+        """Process transcriptions for renamed files using the TextRecognizer"""
         df_pred = pd.DataFrame(columns=[
             'filename', 'sub_file', 'row', 'column',
             'x', 'y', 'w', 'h', 'transcription'
         ])
 
         for sub_image in renamed_files:
+            # Parse file information
             column, row, y, x, w, h = self.htr.filename_parse(sub_image)
-            generated_text = self.htr.transcribe_subimage(
-                sub_image, directory, self.processor,
-                model=self.transcription_model,
-                device=self.device
-            )
+            
+            # Load image path
+            img_path = os.path.join(directory, sub_image)
+            
+            # Read image with OpenCV and convert to PIL for the recognizer
+            cv_image = cv2.imread(img_path)
+            if cv_image is not None:
+                # Convert BGR to RGB (OpenCV loads as BGR, PIL expects RGB)
+                cv_image_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+                # Convert to PIL Image
+                pil_image = Image.fromarray(cv_image_rgb)
+                
+                # Get transcription using the new recognizer
+                try:
+                    generated_text = self.text_recognizer.recognise(pil_image)
+                    logger.debug(f"Successfully transcribed {sub_image}")
+                except Exception as e:
+                    logger.error(f"Error transcribing {sub_image}: {e}")
+                    generated_text = ""
+            else:
+                logger.warning(f"Could not read image {img_path}")
+                generated_text = ""
 
+            # Create DataFrame entry
             temp_df = pd.DataFrame({
                 'filename': [filename],
                 'sub_file': [sub_image],
                 'row': [row],
                 'column': [column],
+                'header': '__header' in sub_image,
                 'y': [y],
                 'x': [x],
                 'w': [w],
@@ -568,9 +626,11 @@ class Pipeline:
                 df_pred = self.process_image(image_path)
                 
                 # Reassemble and export
-                df_tables = pd.read_csv(self.config.directories.table_guide)
-                df_pages = pd.read_csv(self.config.directories.page_classification)
+                # df_tables = pd.read_csv(self.config.directories.table_guide)
+                # df_pages = pd.read_csv(self.config.directories.page_classification)
                 
+                df_headers = df_pred[df_pred['sub_file'].str.contains('__header')]
+
                 df_pred_final = self.pr.reassemble_pages(
                     df_pred, image_path.name, df_pages, df_tables
                 )
@@ -579,7 +639,6 @@ class Pipeline:
                 output_dir = Path(self.config.directories.output)
                 sanitized_name = self._sanitize_filename(image_path.name)
                 
-
                 # Export transcription with sanitized filename
                 self.pr.export_transcription(
                     df_pred_final,
@@ -614,6 +673,16 @@ class Pipeline:
                 "Check the log file for details."
             )
 
+        # Cleanup temporary files if configured
+        if self.config.directories.temp:
+            temp_base_dir = Path(self.config.directories.temp) / "text_lines"
+            if os.path.exists(temp_base_dir):
+                try:
+                    logger.info(f"Cleaning up temporary directory: {temp_base_dir}")
+                    shutil.rmtree(temp_base_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory: {e}")
+
 
 def main():
     """Enhanced main function with proper error handling"""
@@ -626,7 +695,11 @@ def main():
             The configuration must be a YAML file with the following structure:
             
             models:
-              transcription: /path/to/transcription/model
+              transcription:
+                path: /path/to/transcription/model
+                batch_size: 20  # Optional
+                precision: "half"  # Optional: "full", "half", or "autocast"
+                beam_num: 2  # Optional
               line_extraction: /path/to/line/model
               row_extraction: /path/to/row/model
               column_extraction: /path/to/column/model
@@ -634,6 +707,7 @@ def main():
             directories:
               input: /path/to/input/dir
               output: /path/to/output/dir
+              temp: /path/to/temp/dir  # Optional, for intermediate processing files
               page_classification: /path/to/page/classification.csv
               table_guide: /path/to/table/guide.csv
             

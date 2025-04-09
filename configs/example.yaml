@@ -1,11 +1,14 @@
 # config.yaml
 
 models:
-  # Path to transcription model directory (used for processor, tokenizer, and model)
-  transcription: "models/transcription_nievre"
+  transcription:
+    path: "models/transcription_full"  
+    batch_size: 40
+    precision: "half"
+    beam_num: 1
   
-  # Paths to various model weights
-  line_extraction: "models/textlines_nievre/model.pth"
+  # These remain unchanged
+  line_extraction: "models/textlines_full/model.pth"
   row_extraction: "models/rows_nievre/model.pth"
   column_extraction: "models/columns_nievre/model.pth"
 
@@ -13,6 +16,7 @@ directories:
   # Base directories for input/output
   input: "examples/inputs"
   output: "examples/outputs"
+  temp: "examples/tmp" 
   
   # Configuration files
   page_classification: "layout_classification/page_classifications.csv"

@@ -19,3 +19,4 @@ examples/outputs/*
 models/*
 !models/
 models.zip
+examples/
