@@ -22,7 +22,7 @@ from PIL import Image
 import src.tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
 import pandas as pd
-from recognise import TextRecognizer
+from src.recognise import TextRecognizer
 
 # Configure logging - only show warnings and errors in console, full logs in file
 logging.basicConfig(
@@ -476,7 +476,7 @@ class Pipeline:
             image_binary = cv2.cvtColor(image_binary, cv2.COLOR_GRAY2RGB)
 
             # Text line extraction
-            polygons, pred, mask, overlap = self.line_model.predict(
+            polygons, _, _, overlap_textline = self.line_model.predict(
                 image_binary, raw_output=True, mask_output=True, overlap_output=True
             )
             
@@ -493,11 +493,11 @@ class Pipeline:
             )
 
             # Page segmentation
-            polygons_col, _, _, _ = self.col_model.predict(
-                image, raw_output=True, mask_output=True, overlap_output=False
+            polygons_col, _, _, overlap_column = self.col_model.predict(
+                image, raw_output=True, mask_output=True, overlap_output=True
             )
-            polygons_row, _, _, _ = self.row_model.predict(
-                image, raw_output=True, mask_output=True, overlap_output=False
+            polygons_row, _, _, overlap_row = self.row_model.predict(
+                image, raw_output=True, mask_output=True, overlap_output=True
             )
 
             # Process grid cells
@@ -505,6 +505,14 @@ class Pipeline:
             grid_cells = self._process_grid_cells(
                 polygons_col, polygons_row, width, height
             )
+
+            for key, value in grid_cells.items():
+                if '_row1' in key:
+                    x, y, w, h = value
+                    # Increase height by the amount we're moving y up
+                    new_height = h + y
+                    grid_cells[key] = (x, 0, w, new_height)
+
             output_subdir = Path(output_dir) / image_path.stem
             output_subdir.mkdir(parents=True, exist_ok=True)
             
@@ -541,6 +549,8 @@ class Pipeline:
             bbox_col_adj[i] = (x, 0, w, h)
 
         bbox_row_adj = self.ts.add_rows(bbox_row_adj, width)
+
+
         return self.ts.find_grid_cells(bbox_row_adj, bbox_col_adj)
 
     def _process_transcriptions(self, renamed_files, directory, filename):

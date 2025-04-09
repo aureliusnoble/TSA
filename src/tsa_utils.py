@@ -1194,6 +1194,7 @@ class TableSegment:
 
         return grid_cells
     
+    
     def assign_cell(self, directory, grid_cells):
         file_names = os.listdir(directory)
         # Process each file
