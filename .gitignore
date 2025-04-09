@@ -15,8 +15,7 @@ configs/*
 !configs/example.yaml
 
 examples/outputs/*
-
+examples/tmp
 models/*
 !models/
 models.zip
-examples/
