@@ -40,7 +40,17 @@ class TextRecognizer:
             self.precision = 'full'
             
         # Load model and processor
-        self.processor = TrOCRProcessor.from_pretrained("microsoft/trocr-large-handwritten")
+        try:
+            self.processor = TrOCRProcessor.from_pretrained(
+                self.model_path,
+                local_files_only=True  # Ensure loading from local files
+            )
+            print(f"Successfully loaded processor from {self.model_path}")
+        except Exception as e:
+            print(f"Error loading processor from model path: {e}")
+            print("Falling back to base TrOCR processor")
+            self.processor = TrOCRProcessor.from_pretrained("microsoft/trocr-large-handwritten")
+        
         self.model = self._create_model()
         
     def _create_model(self):

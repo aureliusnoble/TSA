@@ -23,6 +23,8 @@ import src.tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
 import pandas as pd
 from src.recognise import TextRecognizer
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 
 # Configure logging - only show warnings and errors in console, full logs in file
 logging.basicConfig(
