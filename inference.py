@@ -296,8 +296,8 @@ class Pipeline:
             self.line_model = DocUFCN(3, 768, self.device)
             self.line_model.load(
                 Path(self.config.models.line_extraction),
-                mean=[228, 228, 228],
-                std=[71, 71, 71]
+                mean=[221, 221, 221],
+                std=[80, 80, 80]
             )
 
             # Row/Column models
@@ -311,7 +311,7 @@ class Pipeline:
             self.col_model = DocUFCN(4, 768, self.device)
             self.col_model.load(
                 Path(self.config.models.column_extraction),
-                [228, 228, 228],
+                [229, 229, 229],
                 [71, 71, 71]
             )
 
@@ -476,7 +476,7 @@ class Pipeline:
             image_binary = cv2.cvtColor(image_binary, cv2.COLOR_GRAY2RGB)
 
             # Text line extraction
-            polygons, _, _, _ = self.line_model.predict(
+            polygons, pred, mask, overlap = self.line_model.predict(
                 image_binary, raw_output=True, mask_output=True, overlap_output=True
             )
             
@@ -632,7 +632,7 @@ class Pipeline:
                 df_headers = df_pred[df_pred['sub_file'].str.contains('__header')]
 
                 df_pred_final = self.pr.reassemble_pages(
-                    df_pred, image_path.name, df_pages, df_tables
+                    df_pred, image_path.name, df_headers
                 )
 
                 # Export with sanitized filename

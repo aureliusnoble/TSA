@@ -15,6 +15,7 @@ import subprocess
 import random
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
+import re
 
 class Utilities:
     def __init__(self, directory):
@@ -1271,16 +1272,17 @@ class LineDetection:
             cv2.imwrite(output_path, sub_image)
 
 class HandwrittenTextRecognition:
+
     def filename_parse(self, filename):
         parts = filename.split('_')
 
         column = next(part[3:] for part in parts if part.startswith('col'))
         row = next(part[3:] for part in parts if part.startswith('row'))
-        y = next(part[1:] for part in parts if part.startswith('y'))
-        x = next(part[1:] for part in parts if part.startswith('x'))
-        w = next(part[1:] for part in parts if part.startswith('w'))
-        h = next(part.split('.')[0][1:] for part in parts if part.startswith('h'))
-    
+        y = next(part[1:] for part in parts if part.startswith('y') and part[1:].isdigit())
+        x = next(part[1:] for part in parts if part.startswith('x') and part[1:].isdigit())
+        w = next(part[1:] for part in parts if part.startswith('w') and part[1:].isdigit())
+        h = next(part.split('.')[0][1:] for part in parts if part.startswith('h') and part[1:].split('.')[0].isdigit())
+
         return column, row, y, x, w, h
     
     def assign_cell(self, directory, grid_cells):
@@ -1518,16 +1520,10 @@ class PageReconstruction:
 
         print(f"CSV file created at: {csv_file_path}")
         
-    def reassemble_pages(self, df_pred, filename, df_pages, df_tables):
-        # 1) Identify table type
-        file_type = df_pages[df_pages['File'] == filename]['Type']
-        table_type = file_type.iloc[0]  # e.g. "1A", "2Ba", etc.
-        
-        # 2) Filter df_tables for only the relevant rows
-        matched_rows = df_tables[df_tables['table_type'] == table_type]
-        
+    def reassemble_pages(self, df_pred, filename, df_headers):
+
         # 3) Create a dictionary that maps numeric col_num -> col_name
-        col_ref = dict(zip(matched_rows['col_num'], matched_rows['col_name']))
+        col_ref = dict(zip(df_headers['column'].astype(int), df_headers['transcription']))
         
         # 4) Map the col_name onto df_pred based on the 'column' value
         #    If 'column' might be a string or have NaNs, convert carefully:

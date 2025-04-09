@@ -9,8 +9,8 @@ models:
   
   # These remain unchanged
   line_extraction: "models/textlines_full/model.pth"
-  row_extraction: "models/rows_nievre/model.pth"
-  column_extraction: "models/columns_nievre/model.pth"
+  row_extraction: "models/rows_full/model.pth"
+  column_extraction: "models/columns_full/model.pth"
 
 directories:
   # Base directories for input/output
