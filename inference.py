@@ -407,7 +407,14 @@ class Pipeline:
             Tuple[list[Path], int]: List of paths to process and count of skipped files
         """
         input_dir = Path(self.config.directories.input)
-        all_images = list(input_dir.rglob("*.jpg"))
+        
+        # Look for all supported image formats
+        all_images = []
+        for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+            all_images.extend(list(input_dir.rglob(f"*{ext}")))
+            # Also check for uppercase extensions
+            all_images.extend(list(input_dir.rglob(f"*{ext.upper()}"))) 
+        
         processed_files = self._get_processed_files()
         
         pending_images = []
