@@ -1,5 +1,3 @@
-# inference.py
-
 import argparse
 import logging
 import os
@@ -135,6 +133,7 @@ class Config(BaseModel):
     directories: DirectoryPaths
     device: Optional[str] = Field("cuda" if torch.cuda.is_available() else "cpu")
     batch_size: int = Field(1, ge=1)
+    target_width: int = Field(3840, ge=1, description="Target width for image resizing")
 
 class Pipeline:
     """Main pipeline class for document processing"""
@@ -156,6 +155,10 @@ class Pipeline:
         else:
             logger.info("GPU is not enabled")
         # **End of Added Logging**
+        
+        # Get target width from config (default to 3840 if not specified)
+        self.target_width = getattr(self.config, 'target_width', 3840)
+        logger.info(f"Target image width set to: {self.target_width} pixels")
         
         self._initialize_components()
         
@@ -342,6 +345,43 @@ class Pipeline:
             logger.error(f"Failed to initialize models: {e}")
             raise
 
+    def _resize_image(self, image, target_width=None):
+        """
+        Resize image to target width while maintaining aspect ratio
+        
+        Args:
+            image: OpenCV image (numpy array)
+            target_width: Target width in pixels (uses self.target_width if None)
+            
+        Returns:
+            Resized image
+        """
+        if image is None:
+            raise ValueError("Cannot resize None image")
+            
+        # Use instance target_width if not specified
+        if target_width is None:
+            target_width = self.target_width
+            
+        # Get current dimensions
+        height, width = image.shape[:2]
+        
+        # If image is already at target width, return unmodified
+        if width == target_width:
+            logger.debug(f"Image already at target width ({width}px), skipping resize")
+            return image
+            
+        # Calculate new height to maintain aspect ratio
+        aspect_ratio = height / width
+        new_height = int(target_width * aspect_ratio)
+        
+        # Resize image
+        resized_image = cv2.resize(image, (target_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        logger.info(f"Resized image from {width}x{height} to {target_width}x{new_height}")
+        
+        return resized_image
+
     def _sanitize_filename(self, filename: str) -> str:
         """
         Sanitize filename by removing spaces and special characters
@@ -470,10 +510,13 @@ class Pipeline:
     def process_image(self, image_path: Path):
         """Process a single image through the pipeline"""
         try:
-            # Load and preprocess image
+            # Load image
             image = cv2.imread(str(image_path))
             if image is None:
                 raise ValueError(f"Could not read image: {image_path}")
+                
+            # Resize image to target width (default 3840px)
+            image = self._resize_image(image)
 
             # Create output directory structure
             output_dir = self._create_output_structure(image_path)
@@ -732,6 +775,7 @@ def main():
             
             device: cuda  # Optional, defaults to cuda if available, else cpu
             batch_size: 1  # Optional, defaults to 1
+            target_width: 3840  # Optional, defaults to 3840 - target width for image resizing
         ''')
     )
     
@@ -745,6 +789,12 @@ def main():
         '-v', '--verbose', 
         action='store_true',
         help='Enable verbose logging output'
+    )
+    parser.add_argument(
+        '--width',
+        type=int,
+        default=None,
+        help='Override target width for image resizing (default: 3840 or value from config)'
     )
     
     try:
@@ -765,6 +815,12 @@ def main():
         # Initialize and run pipeline
         try:
             pipeline = Pipeline(args.config)
+            
+            # Override target width if specified in command line arguments
+            if args.width is not None:
+                pipeline.target_width = args.width
+                logger.info(f"Overriding target width from command line: {args.width}px")
+                
             logger.info("Starting pipeline execution...")
             pipeline.run()
             logger.info("Pipeline execution completed successfully")

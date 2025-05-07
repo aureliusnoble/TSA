@@ -5,7 +5,7 @@ models:
     path: "models/transcription_full"  
     batch_size: 40
     precision: "half"
-    beam_num: 1
+    num_beams: 1
   
   # These remain unchanged
   line_extraction: "models/textlines_full/model.pth"
