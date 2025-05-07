@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, Optional, Set, Tuple, Union, Any
 import cv2
@@ -161,6 +162,11 @@ class Pipeline:
         logger.info(f"Target image width set to: {self.target_width} pixels")
         
         self._initialize_components()
+        
+        # Setup fallback temp directory in user's home directory if external drive temp path fails
+        self.fallback_temp_dir = os.path.join(os.path.expanduser("~"), ".tsa_temp")
+        os.makedirs(self.fallback_temp_dir, exist_ok=True)
+        logger.info(f"Fallback temp directory setup: {self.fallback_temp_dir}")
         
     def _load_config(self, config_path: str) -> Config:
         """
@@ -482,7 +488,8 @@ class Pipeline:
 
     def _create_output_structure(self, image_path: Path) -> Path:
         """
-        Create and return the temporary directory structure for line images
+        Create and return the temporary directory structure for line images.
+        Uses a unique identifier to prevent collisions and implements fallback mechanisms.
         
         Args:
             image_path: Path to the image being processed
@@ -490,25 +497,63 @@ class Pipeline:
         Returns:
             Path: Path to the temporary directory for text line images
         """
-        # Determine temp directory path - use configured path or default to output/text_lines
+        # Generate a unique subdirectory name based on image name and random ID
+        # This helps avoid collisions and path issues
+        image_id = f"{image_path.stem}_{uuid.uuid4().hex[:8]}"
+        
+        # First try using the configured temp directory
         if self.config.directories.temp:
-            temp_base_dir = Path(self.config.directories.temp) / "text_lines"
-            logger.debug(f"Using configured temp directory: {temp_base_dir}")
-        else:
-            temp_base_dir = Path(self.config.directories.output) / "text_lines"
-            logger.debug(f"Using default temp directory in output path: {temp_base_dir}")
+            # Use a subdirectory structure that minimizes path length and avoids spaces
+            try:
+                temp_base_dir = Path(self.config.directories.temp) / "text_lines" / image_id
+                # Test if we can create this directory
+                temp_base_dir.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Using configured temp directory: {temp_base_dir}")
+                return temp_base_dir
+            except (OSError, PermissionError) as e:
+                logger.warning(f"Could not create configured temp directory: {e}. Trying fallback.")
         
-        # Clean up existing directory if it exists
-        if os.path.exists(temp_base_dir):
-            shutil.rmtree(temp_base_dir)  # Recursively delete the directory
-            
-        # Create temp directory
-        temp_base_dir.mkdir(parents=True, exist_ok=True)
+        # Fallback to a directory in the user's home directory
+        try:
+            fallback_dir = Path(self.fallback_temp_dir) / "text_lines" / image_id
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using fallback temp directory: {fallback_dir}")
+            return fallback_dir
+        except Exception as e:
+            # Final fallback to system temp directory
+            logger.warning(f"Fallback temp directory failed: {e}. Trying system temp.")
+            import tempfile
+            system_temp = Path(tempfile.gettempdir()) / "tsa_text_lines" / image_id
+            system_temp.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using system temp directory: {system_temp}")
+            return system_temp
+
+    def _cleanup_temp_directory(self, temp_dir: Path):
+        """
+        Clean up temporary directory after processing an image
         
-        return temp_base_dir
+        Args:
+            temp_dir: Path to the temporary directory to clean up
+        """
+        if temp_dir.exists():
+            try:
+                logger.info(f"Cleaning up temporary directory: {temp_dir}")
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary directory: {e}")
+                # If we can't remove the directory completely, try to at least remove its contents
+                try:
+                    for item in temp_dir.iterdir():
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                except Exception as inner_e:
+                    logger.error(f"Failed to clean directory contents: {inner_e}")
 
     def process_image(self, image_path: Path):
         """Process a single image through the pipeline"""
+        temp_dir = None
         try:
             # Load image
             image = cv2.imread(str(image_path))
@@ -518,9 +563,9 @@ class Pipeline:
             # Resize image to target width (default 3840px)
             image = self._resize_image(image)
 
-            # Create output directory structure
-            output_dir = self._create_output_structure(image_path)
-            logger.debug(f"Created temporary directory: {output_dir}")
+            # Create output directory structure - with improved error handling
+            temp_dir = self._create_output_structure(image_path)
+            logger.debug(f"Created temporary directory: {temp_dir}")
 
             # Binarization
             image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -534,13 +579,13 @@ class Pipeline:
             
             # Extract text lines
             self.ld.extract_textlines(
-                image, polygons, str(output_dir), image_path.name,
+                image, polygons, str(temp_dir), image_path.name,
                 self.line_model, padding=0, category=1
             )
 
             #Extract Headers
             self.ld.extract_textlines(
-                image, polygons, str(output_dir), image_path.name,
+                image, polygons, str(temp_dir), image_path.name,
                 self.line_model, padding=0, category=2
             )
 
@@ -565,7 +610,7 @@ class Pipeline:
                     new_height = h + y
                     grid_cells[key] = (x, 0, w, new_height)
 
-            output_subdir = Path(output_dir) / image_path.stem
+            output_subdir = Path(temp_dir) / image_path.stem
             output_subdir.mkdir(parents=True, exist_ok=True)
             
             # Rename files and transcribe
@@ -577,8 +622,12 @@ class Pipeline:
             return transcriptions
 
         except Exception as e:
-            logger.error(f"Error processing image {image_path}: {e}")
+            logger.error(f"Error processing image {image_path}: {e}", exc_info=True)
             raise
+        finally:
+            # Always clean up temporary directory after processing, even if there was an error
+            if temp_dir is not None:
+                self._cleanup_temp_directory(temp_dir.parent)  # Clean up the parent text_lines directory
 
     def _process_grid_cells(self, polygons_col, polygons_row, width, height):
         """Process grid cells from polygons"""
@@ -644,7 +693,7 @@ class Pipeline:
                 'sub_file': [sub_image],
                 'row': [row],
                 'column': [column],
-                'header': '__header' in sub_image,
+                'header': ['__header' in sub_image],
                 'y': [y],
                 'x': [x],
                 'w': [w],
@@ -684,13 +733,12 @@ class Pipeline:
                 municipality = image_path.parent.parent.name
                 year = image_path.parent.name
                 
+                logger.info(f"Processing image: {image_path}")
+                
                 # Process image
                 df_pred = self.process_image(image_path)
                 
                 # Reassemble and export
-                # df_tables = pd.read_csv(self.config.directories.table_guide)
-                # df_pages = pd.read_csv(self.config.directories.page_classification)
-                
                 df_headers = df_pred[df_pred['sub_file'].str.contains('__header')]
 
                 df_pred_final = self.pr.reassemble_pages(
@@ -712,10 +760,12 @@ class Pipeline:
                 
                 processed_count += 1
                 pbar.update(1)
+                logger.info(f"Successfully processed: {image_path}")
 
             except Exception as e:
                 logger.error(f"Failed to process {image_path}: {e}", exc_info=True)
                 error_count += 1
+                pbar.update(1)  # Update progress bar even if there's an error
                 continue
                 
         pbar.close()
@@ -734,16 +784,6 @@ class Pipeline:
                 f"Pipeline completed with {error_count} errors. "
                 "Check the log file for details."
             )
-
-        # Cleanup temporary files if configured
-        if self.config.directories.temp:
-            temp_base_dir = Path(self.config.directories.temp) / "text_lines"
-            if os.path.exists(temp_base_dir):
-                try:
-                    logger.info(f"Cleaning up temporary directory: {temp_base_dir}")
-                    shutil.rmtree(temp_base_dir)
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary directory: {e}")
 
 
 def main():
@@ -796,6 +836,11 @@ def main():
         default=None,
         help='Override target width for image resizing (default: 3840 or value from config)'
     )
+    parser.add_argument(
+        '--internal-temp',
+        action='store_true',
+        help='Force use of internal storage for temporary files regardless of config'
+    )
     
     try:
         args = parser.parse_args()
@@ -811,10 +856,34 @@ def main():
             console.print(f"[red]Configuration Error:[/red] {str(e)}")
             logger.error(f"Configuration validation failed: {e}")
             sys.exit(1)
-            
-        # Initialize and run pipeline
+        
+        # Load config and potentially override temp directory
         try:
-            pipeline = Pipeline(args.config)
+            # If user requested internal temp storage, modify the config
+            if args.internal_temp:
+                # First load the config to get the structure
+                with open(args.config, 'r') as f:
+                    config_dict = yaml.safe_load(f)
+                
+                # Override temp directory to use home directory
+                internal_temp = os.path.join(os.path.expanduser("~"), ".tsa_temp")
+                os.makedirs(internal_temp, exist_ok=True)
+                logger.info(f"Overriding temp directory to use internal storage: {internal_temp}")
+                config_dict['directories']['temp'] = internal_temp
+                
+                # Write to a temporary config file
+                temp_config_path = os.path.join(os.path.expanduser("~"), ".tsa_temp_config.yaml")
+                with open(temp_config_path, 'w') as f:
+                    yaml.dump(config_dict, f)
+                
+                # Use this temporary config file
+                config_path = temp_config_path
+                logger.info(f"Using temporary configuration with internal temp directory")
+            else:
+                config_path = args.config
+            
+            # Initialize and run pipeline
+            pipeline = Pipeline(config_path)
             
             # Override target width if specified in command line arguments
             if args.width is not None:
@@ -824,6 +893,13 @@ def main():
             logger.info("Starting pipeline execution...")
             pipeline.run()
             logger.info("Pipeline execution completed successfully")
+            
+            # Clean up temporary config if created
+            if args.internal_temp and os.path.exists(temp_config_path):
+                try:
+                    os.remove(temp_config_path)
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary config file: {e}")
             
         except yaml.YAMLError as e:
             error_msg = (
