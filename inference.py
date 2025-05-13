@@ -422,9 +422,7 @@ class Pipeline:
         
         # Resize image
         resized_image = cv2.resize(image, (target_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        logger.info(f"Resized image from {width}x{height} to {target_width}x{new_height}")
-        
+                
         return resized_image
 
     def _sanitize_filename(self, filename: str) -> str:
