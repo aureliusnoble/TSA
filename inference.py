@@ -79,6 +79,44 @@ def configure_logging(verbose: bool = False):
     
     return pipeline_logger
 
+def extract_bounding_boxes_and_avg_y2(polygons_data):
+    """
+    Extract bounding boxes from a list of polygon data and calculate average y2 coordinate.
+    
+    Args:
+        polygons_data: List of dictionaries, each with 'confidence' and 'polygon' keys
+                      where 'polygon' is a list of [x,y] coordinate pairs
+    
+    Returns:
+        tuple: (list of bounding boxes, average y2 coordinate)
+    """
+    bounding_boxes = []
+    y2_coordinates = []
+    
+    for item in polygons_data:
+        polygon = item['polygon']
+        
+        # Extract x and y coordinates from the polygon
+        x_coords = [point[0] for point in polygon]
+        y_coords = [point[1] for point in polygon]
+        
+        # Calculate the bounding box
+        x1 = min(x_coords)  # Minimum x (left)
+        y1 = min(y_coords)  # Minimum y (top)
+        x2 = max(x_coords)  # Maximum x (right)
+        y2 = max(y_coords)  # Maximum y (bottom)
+        
+        bounding_box = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
+        bounding_boxes.append(bounding_box)
+        
+        # Collect x2 coordinate for average calculation
+        y2_coordinates.append(y2)
+    
+    # Calculate average x2 coordinate
+    avg_y2 = sum(y2_coordinates) / len(y2_coordinates) if y2_coordinates else 0
+    
+    return bounding_boxes, avg_y2
+
 class ConfigurationError(Exception):
     """Custom exception for configuration-related errors"""
     pass
@@ -444,7 +482,7 @@ class Pipeline:
         except Exception as e:
             logger.error(f"Error scanning output directory: {e}")
             return set()
-
+        
     def _get_pending_images(self) -> Tuple[list[Path], int]:
         """
         Get list of images that need processing
@@ -465,9 +503,16 @@ class Pipeline:
         
         pending_images = []
         skipped_count = 0
+        hidden_files_count = 0
         
         for image_path in all_images:
             try:
+                # Skip macOS metadata files (those starting with ._)
+                if image_path.name.startswith('._'):
+                    logger.debug(f"Skipping macOS metadata file: {image_path}")
+                    hidden_files_count += 1
+                    continue
+                    
                 # Get relative path components
                 municipality = image_path.parent.parent.name
                 year_range = image_path.parent.name
@@ -484,6 +529,7 @@ class Pipeline:
                 # Include file in pending_images if there's an error checking its status
                 pending_images.append(image_path)
         
+        logger.info(f"Skipped {hidden_files_count} macOS metadata files (._* files)")
         return pending_images, skipped_count
 
     def _create_output_structure(self, image_path: Path) -> Path:
@@ -574,28 +620,32 @@ class Pipeline:
 
             # Text line extraction
             polygons, _, _, overlap_textline = self.line_model.predict(
-                image_binary, raw_output=True, mask_output=True, overlap_output=True
+                image_binary, raw_output=True, mask_output=True, overlap_output=False
             )
             
+
+            # Page segmentation
+            polygons_col, _, _, overlap_column = self.col_model.predict(
+                image, raw_output=True, mask_output=True, overlap_output=False
+            )
+            polygons_row, _, _, overlap_row = self.row_model.predict(
+                image, raw_output=True, mask_output=True, overlap_output=False
+            )
+
+            bounding_boxes, header_y2 = extract_bounding_boxes_and_avg_y2(polygons_row[1])
+
             # Extract text lines
             self.ld.extract_textlines(
-                image, polygons, str(temp_dir), image_path.name,
+                image, polygons, header_y2, str(temp_dir), image_path.name,
                 self.line_model, padding=0, category=1
             )
 
             #Extract Headers
             self.ld.extract_textlines(
-                image, polygons, str(temp_dir), image_path.name,
+                image, polygons,  header_y2, str(temp_dir), image_path.name,
                 self.line_model, padding=0, category=2
             )
 
-            # Page segmentation
-            polygons_col, _, _, overlap_column = self.col_model.predict(
-                image, raw_output=True, mask_output=True, overlap_output=True
-            )
-            polygons_row, _, _, overlap_row = self.row_model.predict(
-                image, raw_output=True, mask_output=True, overlap_output=True
-            )
 
             # Process grid cells
             height, width, _ = image.shape

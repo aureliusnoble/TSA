@@ -1249,7 +1249,7 @@ class TableSegment:
         return renamed_files
 
 class LineDetection:
-    def extract_textlines(self, image, polygons, output_dir, filename, model, padding, category):
+    def extract_textlines(self, image, polygons, header_y2, output_dir, filename, model, padding, category):
         textline_polygons = polygons[category]
         #base_filename = os.path.splitext(filename)[0]
         #output_subfolder = os.path.join(output_dir, base_filename)
@@ -1265,7 +1265,7 @@ class LineDetection:
         
             if category == 1:
                 key = f"y{y}_x{x}_w{w}_h{h}"
-            elif category ==2:
+            elif (category ==2) and y < header_y2:
                 key = f"y{y}_x{x}_w{w}_h{h}__header"
 
             output_filename = f"{base_filename}_{key}.png"
