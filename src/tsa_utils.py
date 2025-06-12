@@ -1522,7 +1522,17 @@ class PageReconstruction:
         print(f"CSV file created at: {csv_file_path}")
         
     def reassemble_pages(self, df_pred, filename, df_headers):
+        """
+        Modified reassemble_pages method to include BERT classification columns
 
+        Args:
+            df_pred: DataFrame with predictions
+            filename: Name of the file
+            df_headers: DataFrame with header information
+
+        Returns:
+            DataFrame with reassembled pages, including BERT classification columns
+        """
         # 3) Create a dictionary that maps numeric col_num -> col_name
         col_ref = dict(zip(df_headers['column'].astype(int), df_headers['transcription']))
         
@@ -1533,9 +1543,16 @@ class PageReconstruction:
         
         # 5) Now preserve all these columns:
         #    Make sure 'column', 'x', 'y' do not get dropped
-        df_pred_final = df_pred[
-            ['filename', 'row', 'column', 'x', 'y', 'col_name', 'transcription']
-        ]
+        # Include the new BERT classification columns if they exist
+        columns_to_keep = ['filename', 'row', 'column', 'x', 'y', 'col_name', 'transcription']
+        
+        # Add BERT classification columns if they exist in the DataFrame
+        bert_columns = ['col_name_line_lm', 'col_name_line_lm_conf', 'col_name_lm', 'col_name_lm_conf']
+        for col in bert_columns:
+            if col in df_pred.columns:
+                columns_to_keep.append(col)
+        
+        df_pred_final = df_pred[columns_to_keep]
         
         return df_pred_final
     
