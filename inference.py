@@ -15,12 +15,14 @@ import textwrap
 from rich.console import Console
 from tqdm import tqdm
 from transformers import (AutoTokenizer, TrOCRProcessor,
-                          VisionEncoderDecoderModel)
+                          VisionEncoderDecoderModel, AutoModelForSequenceClassification)
 from PIL import Image
+import numpy as np
+import pandas as pd
+from collections import Counter
 
 import src.tsa_utils as tsa
 from doc_ufcn.main import DocUFCN
-import pandas as pd
 from src.recognise import TextRecognizer
 import warnings
 
@@ -158,6 +160,9 @@ class ModelPaths(BaseModel):
     line_extraction: str = Field(..., description="Path to line extraction model")
     row_extraction: str = Field(..., description="Path to row extraction model")
     column_extraction: str = Field(..., description="Path to column extraction model")
+    bert_classifier_model: Optional[str] = Field(None, description="Path to BERT column classifier model")
+    bert_classifier_tokenizer: Optional[str] = Field(None, description="Name or path of BERT tokenizer")
+    bert_classifier_label_map: Optional[str] = Field(None, description="Path to label mapping CSV")
 
 class DirectoryPaths(BaseModel):
     """Configuration for directory paths"""
@@ -279,6 +284,13 @@ class Pipeline:
                         model_path = Path(path['path'])
                     else:
                         model_path = Path(path)
+                # Skip validation of optional BERT paths if they're None
+                elif model_type in ['bert_classifier_model', 'bert_classifier_tokenizer', 'bert_classifier_label_map'] and path is None:
+                    continue
+                # Skip validation for tokenizer if it's a model name rather than a path
+                elif model_type == 'bert_classifier_tokenizer' and not os.path.exists(path):
+                    # Assume it's a model name from HuggingFace, so don't validate existence
+                    continue
                 else:
                     model_path = Path(path)
                     
@@ -386,9 +398,115 @@ class Pipeline:
             self.text_recognizer = TextRecognizer(model_path, **recognizer_args)
             logger.info(f"Initialized TextRecognizer with parameters: {recognizer_args}")
 
+            # Initialize BERT classifier if configured
+            self.bert_classifier = None
+            self.bert_tokenizer = None
+            self.label_id_to_name = None
+            
+            if (self.config.models.bert_classifier_model and 
+                self.config.models.bert_classifier_tokenizer and
+                self.config.models.bert_classifier_label_map):
+                self._initialize_bert_classifier()
+
         except Exception as e:
             logger.error(f"Failed to initialize models: {e}")
             raise
+            
+    def _initialize_bert_classifier(self):
+        """Initialize the BERT classifier model for column classification"""
+        try:
+            logger.info("Initializing BERT column classifier...")
+            
+            # Load tokenizer
+            tokenizer_name = self.config.models.bert_classifier_tokenizer
+            self.bert_tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+            logger.info(f"Loaded tokenizer: {tokenizer_name}")
+            
+            # Load label mapping
+            label_map_path = self.config.models.bert_classifier_label_map
+            label_df = pd.read_csv(label_map_path)
+            self.label_id_to_name = {row['id']: row['label'] for _, row in label_df.iterrows()}
+            logger.info(f"Loaded label mapping with {len(self.label_id_to_name)} categories")
+            
+            # Load model - First determine the number of labels
+            num_labels = len(self.label_id_to_name)
+            model_path = self.config.models.bert_classifier_model
+            
+            # If the path is a directory (huggingface model), load directly
+            if os.path.isdir(model_path):
+                self.bert_classifier = AutoModelForSequenceClassification.from_pretrained(
+                    model_path, 
+                    num_labels=num_labels
+                )
+                logger.info(f"Loaded BERT classifier from directory: {model_path}")
+            else:
+                # If it's a state dict file, first load the base model then apply state dict
+                base_model = AutoModelForSequenceClassification.from_pretrained(
+                    tokenizer_name,
+                    num_labels=num_labels,
+                    id2label=self.label_id_to_name
+                )
+                self.bert_classifier = base_model
+                self.bert_classifier.load_state_dict(torch.load(model_path, map_location=self.device))
+                logger.info(f"Loaded BERT classifier state dict from: {model_path}")
+                
+            # Move model to device
+            self.bert_classifier.to(self.device)
+            self.bert_classifier.eval()  # Set to evaluation mode
+            
+            logger.info("BERT column classifier initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize BERT classifier: {e}", exc_info=True)
+            logger.warning("BERT classification will be disabled")
+            self.bert_classifier = None
+            self.bert_tokenizer = None
+            self.label_id_to_name = None
+
+    def classify_text(self, text):
+        """
+        Classify text using the BERT classifier
+        
+        Args:
+            text (str): The text to classify
+            
+        Returns:
+            tuple: (predicted_label, confidence_score) or (None, 0.0) if classifier not available
+        """
+        if not self.bert_classifier or not self.bert_tokenizer or not self.label_id_to_name:
+            return None, 0.0
+            
+        try:
+            # Prepare the input
+            inputs = self.bert_tokenizer(
+                text,
+                add_special_tokens=True,
+                max_length=128,
+                padding='max_length',
+                truncation=True,
+                return_tensors="pt"
+            ).to(self.device)
+            
+            # Get predictions
+            with torch.no_grad():
+                outputs = self.bert_classifier(**inputs)
+                logits = outputs.logits
+                
+                # Get predicted class and confidence
+                probabilities = torch.nn.functional.softmax(logits, dim=1)
+                confidence, prediction = torch.max(probabilities, dim=1)
+                
+                predicted_id = prediction.item()
+                confidence_score = confidence.item()
+                
+                # Map ID to label name
+                predicted_label = self.label_id_to_name.get(predicted_id, "UNKNOWN")
+                
+                return predicted_label, confidence_score
+                
+        except Exception as e:
+            logger.error(f"Error during text classification: {e}")
+            return None, 0.0
 
     def _resize_image(self, image, target_width=None):
         """
@@ -704,10 +822,13 @@ class Pipeline:
         return self.ts.find_grid_cells(bbox_row_adj, bbox_col_adj)
 
     def _process_transcriptions(self, renamed_files, directory, filename):
-        """Process transcriptions for renamed files using the TextRecognizer"""
+        """Process transcriptions for renamed files using the TextRecognizer and BERT classifier"""
+        # Initialize DataFrame with all required columns
         df_pred = pd.DataFrame(columns=[
             'filename', 'sub_file', 'row', 'column',
-            'x', 'y', 'w', 'h', 'transcription'
+            'x', 'y', 'w', 'h', 'transcription',
+            'col_name_line_lm', 'col_name_line_lm_conf',  # Line-level classification
+            'col_name_lm', 'col_name_lm_conf'  # Column-level classification
         ])
 
         for sub_image in renamed_files:
@@ -729,14 +850,24 @@ class Pipeline:
                 try:
                     generated_text = self.text_recognizer.recognise(pil_image)
                     logger.debug(f"Successfully transcribed {sub_image}")
+                    
+                    # Classify text using BERT model
+                    if self.bert_classifier is not None:
+                        col_name_line_lm, col_name_line_lm_conf = self.classify_text(generated_text)
+                    else:
+                        col_name_line_lm, col_name_line_lm_conf = None, 0.0
+                        
                 except Exception as e:
                     logger.error(f"Error transcribing {sub_image}: {e}")
                     generated_text = ""
+                    col_name_line_lm, col_name_line_lm_conf = None, 0.0
             else:
                 logger.warning(f"Could not read image {img_path}")
                 generated_text = ""
+                col_name_line_lm, col_name_line_lm_conf = None, 0.0
 
-            # Create DataFrame entry
+            # Create DataFrame entry with placeholders for column-level classifications
+            # (will be filled in later)
             temp_df = pd.DataFrame({
                 'filename': [filename],
                 'sub_file': [sub_image],
@@ -747,10 +878,59 @@ class Pipeline:
                 'x': [x],
                 'w': [w],
                 'h': [h],
-                'transcription': [generated_text]
+                'transcription': [generated_text],
+                'col_name_line_lm': [col_name_line_lm],
+                'col_name_line_lm_conf': [col_name_line_lm_conf],
+                'col_name_lm': [None],  # Placeholder, will be updated
+                'col_name_lm_conf': [0.0]  # Placeholder, will be updated
             })
 
             df_pred = pd.concat([df_pred, temp_df], ignore_index=True)
+
+        # Calculate the most common column classification per column number
+        if self.bert_classifier is not None:
+            # Get unique column values
+            unique_columns = df_pred['column'].unique()
+            
+            # Dictionary to store most common classifications
+            column_classifications = {}
+            
+            for col_num in unique_columns:
+                # Get all rows for this column
+                col_rows = df_pred[df_pred['column'] == col_num]
+                
+                # Get classifications for this column that are not None
+                classifications = col_rows[col_rows['col_name_line_lm'].notna()]['col_name_line_lm'].tolist()
+                
+                if classifications:
+                    # Find most common classification
+                    counter = Counter(classifications)
+                    most_common_class, count = counter.most_common(1)[0]
+                    confidence = count / len(classifications)
+                    
+                    column_classifications[col_num] = {
+                        'col_name_lm': most_common_class,
+                        'col_name_lm_conf': confidence
+                    }
+                else:
+                    column_classifications[col_num] = {
+                        'col_name_lm': None,
+                        'col_name_lm_conf': 0.0
+                    }
+            
+            # Apply column-level classifications back to the dataframe
+            for col_num, classification in column_classifications.items():
+                # Ensure we convert column to the same type as col_num to avoid mismatches
+                # with numeric vs string columns
+                mask = df_pred['column'].astype(str) == str(col_num)
+                df_pred.loc[mask, 'col_name_lm'] = classification['col_name_lm']
+                df_pred.loc[mask, 'col_name_lm_conf'] = classification['col_name_lm_conf']
+                
+            logger.info(f"Column classifications: {column_classifications}")
+        else:
+            # If BERT classifier is not available, add empty columns
+            df_pred['col_name_lm'] = None
+            df_pred['col_name_lm_conf'] = 0.0
 
         return df_pred
 
@@ -854,6 +1034,9 @@ def main():
               line_extraction: /path/to/line/model
               row_extraction: /path/to/row/model
               column_extraction: /path/to/column/model
+              bert_classifier_model: /path/to/bert/model.pt  # Optional
+              bert_classifier_tokenizer: camembert-base  # Optional
+              bert_classifier_label_map: /path/to/label_mapping.csv  # Optional
             
             directories:
               input: /path/to/input/dir
