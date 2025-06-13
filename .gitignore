@@ -11,8 +11,7 @@ logs/*
 
 
 # Ignore all files in configs except example.yaml
-configs/*
-!configs/example.yaml
+
 
 examples/outputs/*
 examples/tmp

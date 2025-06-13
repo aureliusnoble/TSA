@@ -1,0 +1,27 @@
+# config.yaml
+
+models:
+  transcription:
+    path: "models/transcription_full"  
+    batch_size: 40
+    precision: "half"
+    beam_num: 1
+
+  
+  # These remain unchanged
+  line_extraction: "models/textlines_full/model.pth"
+  row_extraction: "models/rows_full/model.pth"
+  column_extraction: "models/columns_full/model.pth"
+  bert_classifier_model: "models/column_classification/bert_columns.pt"
+  bert_classifier_tokenizer: "camembert-base"
+  bert_classifier_label_map: "models/column_classification/label_mapping.csv"
+
+directories:
+  # Base directories for input/output
+  input: "/media/aurelius/Seagate Expansion Drive/Work/TSA/Aube"
+  output: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Results/Final/Aube_Revised/"
+  temp: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Results/Final/Aube_tmp/" 
+  
+  # Configuration files
+  page_classification: "layout_classification/page_classifications.csv"
+  table_guide: "layout_classification/table_layouts.csv"
