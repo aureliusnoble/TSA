@@ -118,10 +118,12 @@ python download_models.py
 **Expected Model Structure:**
 ```
 models/
-├── transcription_nievre/          # TrOCR weights and configuration files
-├── textlines_nievre/model.pth     # Line detection model weights
-├── rows_nievre/model.pth          # Row detection model weights
-└── columns_nievre/model.pth       # Column detection model weights
+├── transcription_full/          # TrOCR weights and configuration files
+├── textlines_full/model.pth     # Line detection model weights
+├── rows_full/model.pth          # Row detection model weights
+├── columns_full/model.pth          # Column detection model weights
+└── column_classification/bert_columns.pt       # Column detection model weights
+
 ```
 
 ## Data Organization
@@ -202,11 +204,15 @@ models:
   line_extraction: "models/textlines_nievre/model.pth"
   row_extraction: "models/rows_nievre/model.pth"
   column_extraction: "models/columns_nievre/model.pth"
+  bert_classifier_model: "models/column_classification/bert_columns.pt"
+  bert_classifier_tokenizer: "camembert-base"
+  bert_classifier_label_map: "models/column_classification/label_mapping.csv"
 
 directories:
   # Base directories for input/output
   input: "examples/inputs"
   output: "examples/outputs"
+  temp: "tmp/processing"
 
   # Configuration files
   page_classification: "classification/page_classifications.csv"
