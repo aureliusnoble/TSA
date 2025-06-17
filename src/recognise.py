@@ -10,9 +10,9 @@ class TextRecognizer:
     def __init__(self, 
                  model_path,
                  device=None,
-                 batch_size=20,
+                 batch_size=128,
                  precision='half',
-                 beam_num=2):
+                 beam_num=1):
         """
         Initialize the text recognizer.
         
@@ -43,7 +43,8 @@ class TextRecognizer:
         try:
             self.processor = TrOCRProcessor.from_pretrained(
                 self.model_path,
-                local_files_only=True  # Ensure loading from local files
+                local_files_only=True,  # Ensure loading from local files
+                use_fast=True
             )
             print(f"Successfully loaded processor from {self.model_path}")
         except Exception as e:
@@ -66,7 +67,7 @@ class TextRecognizer:
         # Set beam search parameters
         model.config.max_length = 128
         model.config.no_repeat_ngram_size = 3
-        model.config.num_beams = self.beam_num
+        model.config.num_beams = 1
         
         if self.beam_num == 1:
             model.config.length_penalty = 1
@@ -106,35 +107,28 @@ class TextRecognizer:
         if not isinstance(images, list):
             images = [images]
             single_image = True
-            
-        results = []
         
-        # Process images in batches
-        for i in range(0, len(images), self.batch_size):
-            batch = images[i:i+self.batch_size]
-            
-            # Prepare input
-            pixel_values = self.processor(batch, return_tensors="pt").pixel_values.to(self.device)
-            if self.precision == 'half' and not self.device.startswith('cpu'):
-                pixel_values = pixel_values.half()
-                
-            # Run inference
-            try:
-                if self.precision == 'autocast' and not self.device.startswith('cpu'):
-                    with torch.cuda.amp.autocast():
-                        generated_ids = self.model.generate(pixel_values)
-                else:
+        # Process the batch as received - no sub-batching
+        pixel_values = self.processor(images, return_tensors="pt").pixel_values.to(self.device)
+        if self.precision == 'half' and not self.device.startswith('cpu'):
+            pixel_values = pixel_values.half()
+        
+        # Run inference
+        try:
+            if self.precision == 'autocast' and not self.device.startswith('cpu'):
+                with torch.cuda.amp.autocast():
                     generated_ids = self.model.generate(pixel_values)
-                    
-                # Decode results
-                batch_results = self.processor.batch_decode(generated_ids, skip_special_tokens=True)
-                results.extend(batch_results)
+            else:
+                generated_ids = self.model.generate(pixel_values)
                 
-            except RuntimeError as e:
-                if "out of memory" in str(e):
-                    raise RuntimeError(f"CUDA out of memory: {e}")
-                else:
-                    raise RuntimeError(f"Error during inference: {e}")
+            # Decode results
+            results = self.processor.batch_decode(generated_ids, skip_special_tokens=True)
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                raise RuntimeError(f"CUDA out of memory with batch size {len(images)}: {e}")
+            else:
+                raise RuntimeError(f"Error during inference: {e}")
         
         # Return single result or list of results
         return results[0] if single_image else results
