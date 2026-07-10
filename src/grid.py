@@ -145,7 +145,7 @@ def find_seam(binary: np.ndarray, boundary: int, window: int, axis: str,
     lo = max(0, int(boundary) - window)
     hi = min(n, int(boundary) + window + 1)
     if hi <= lo:
-        return int(np.clip(boundary, 0, n - 1))
+        return int(np.clip(boundary, 0, max(0, n - 1)))
     seg = profile[lo:hi].astype(np.int64)
     best = seg.min()
     # among minima, take the one closest to the geometric boundary
@@ -156,19 +156,33 @@ def find_seam(binary: np.ndarray, boundary: int, window: int, axis: str,
 def _cut_positions(start: float, size: float, bands: List[Band],
                    span_frac: float, min_piece_px: float, *, frac_of_band: bool) -> List[float]:
     """Internal band edges crossing [start, start+size] worth cutting at."""
+    bands = sorted(bands)
     end = start + size
     cuts = []
-    for s, e in sorted(bands)[:-1]:
+    for s, e in bands[:-1]:
         edge = e  # internal boundary between this band and the next
         if start + min_piece_px < edge < end - min_piece_px:
             over = end - edge  # extension beyond the boundary
-            ref = (bands[_band_index(bands, edge + 1e-6) - 1][1] -
-                   bands[_band_index(bands, edge + 1e-6) - 1][0]) if frac_of_band else size
+            ref_band = bands[_band_index(bands, edge + 1e-6) - 1]
+            ref = (ref_band[1] - ref_band[0]) if frac_of_band else size
             threshold = span_frac * ref
             before = edge - start
             if min(before, over) > max(threshold, min_piece_px):
                 cuts.append(edge)
     return cuts
+
+
+def _drop_sliver_cuts(positions: List[float], min_piece_px: float) -> List[float]:
+    """positions sorted, includes both box edges; drop interior cuts that
+    would create a piece narrower than min_piece_px."""
+    if len(positions) < 2:
+        return list(positions)
+    kept = [positions[0]]
+    for p in positions[1:-1]:
+        if p - kept[-1] >= min_piece_px and positions[-1] - p >= min_piece_px:
+            kept.append(p)
+    kept.append(positions[-1])
+    return kept
 
 
 def split_line(line_box, row_bands: List[Band], col_bands: List[Band],
@@ -177,8 +191,11 @@ def split_line(line_box, row_bands: List[Band], col_bands: List[Band],
                window_px: int = 40, dilate_px: int = 7,
                min_piece_px: int = 20):
     """Split a text-line bbox at column/row boundaries it meaningfully crosses.
-    Returns [((x, y, w, h), cell_name), ...] in page coordinates."""
+    Returns [((x, y, w, h), cell_name), ...] in page coordinates. The pieces
+    always partition the line bbox: no overlaps, full coverage."""
     x, y, w, h = line_box
+    if not row_bands or not col_bands:
+        return [((x, y, w, h), None)]
     xcuts = _cut_positions(x, w, col_bands, col_span_frac, min_piece_px, frac_of_band=False)
     ycuts = _cut_positions(y, h, row_bands, row_span_frac, min_piece_px, frac_of_band=True)
 
@@ -189,20 +206,16 @@ def split_line(line_box, row_bands: List[Band], col_bands: List[Band],
 
     xs = [x] + [seam(c, "x") for c in xcuts] + [x + w]
     ys = [y] + [seam(c, "y") for c in ycuts] + [y + h]
-    xs, ys = sorted(set(xs)), sorted(set(ys))
+    # dropping a cut merges the would-be sliver into its neighbour piece and
+    # keeps the piece set a grid-aligned partition of the line bbox
+    xs = _drop_sliver_cuts(sorted(set(xs)), min_piece_px)
+    ys = _drop_sliver_cuts(sorted(set(ys)), min_piece_px)
 
     pieces = []
     for y0, y1 in zip(ys, ys[1:]):
         for x0, x1 in zip(xs, xs[1:]):
-            pw, ph = x1 - x0, y1 - y0
-            if pw < min_piece_px or ph < min_piece_px:
-                if pieces:  # merge sliver into previous piece in reading order
-                    (px_, py_, pw_, ph_), _ = pieces[-1]
-                    pieces[-1] = ((px_, min(py_, y0), max(px_ + pw_, x1) - px_,
-                                   max(py_ + ph_, y1) - min(py_, y0)), pieces[-1][1])
-                    continue
             cell = assign_cell(row_bands, col_bands, (x0 + x1) / 2.0, (y0 + y1) / 2.0)
-            pieces.append(((x0, y0, pw, ph), cell))
+            pieces.append(((x0, y0, x1 - x0, y1 - y0), cell))
     if not pieces:
         pieces = [((x, y, w, h),
                    assign_cell(row_bands, col_bands, x + w / 2.0, y + h / 2.0))]

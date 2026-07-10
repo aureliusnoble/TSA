@@ -123,3 +123,48 @@ def test_split_line_cuts_stacked_rows():
     pieces = grid.split_line((0, 0, 400, 120), rows, cols, binary)
     assert len(pieces) == 2
     assert {c for _, c in pieces} == {"col1_row1", "col1_row2"}
+
+
+def test_split_line_partition_property():
+    # cross-row + column split: pieces must tile the line bbox exactly
+    rows = [(0.0, 60.0), (60.0, 120.0)]
+    cols = [(0.0, 200.0), (200.0, 400.0)]
+    binary = np.zeros((120, 400), np.uint8)
+    binary[10:50, 20:380] = 255
+    binary[70:110, 20:380] = 255
+    pieces = grid.split_line((0, 0, 400, 120), rows, cols, binary)
+    area = sum(w * h for (x, y, w, h), _ in pieces)
+    assert area == 400 * 120  # full coverage, no overlap (pieces are grid-aligned)
+    # every piece is in exactly one cell and at least min_piece_px wide/tall
+    for (x, y, w, h), cell in pieces:
+        assert w >= 20 and h >= 20 and cell is not None
+
+
+def test_split_line_first_piece_sliver_is_absorbed():
+    # a column boundary right at the box's left edge region must not emit a sliver
+    rows = [(0.0, 100.0)]
+    cols = [(0.0, 10.0), (10.0, 400.0)]  # boundary at 10 < min_piece_px from edge
+    pieces = grid.split_line((0, 20, 400, 60), rows, cols, synth_line())
+    assert all(w >= 20 for (x, y, w, h), _ in pieces)
+    # and a legitimate boundary whose SEAM lands near the edge must have its
+    # cut dropped (exercises _drop_sliver_cuts), not emit a sliver piece
+    cols = [(0.0, 30.0), (30.0, 400.0)]
+    binary = np.full((60, 400), 255, np.uint8)  # solid ink...
+    binary[:, 5:15] = 0                         # ...except a valley at x~10
+    pieces = grid.split_line((0, 20, 400, 60), rows, cols, binary,
+                             col_span_frac=0.05, dilate_px=3)
+    assert all(w >= 20 for (x, y, w, h), _ in pieces)
+    assert sum(w for (x, y, w, h), _ in pieces) == 400  # still a partition
+
+
+def test_split_line_empty_bands_returns_whole():
+    assert grid.split_line((0, 0, 100, 50), [], [(0.0, 100.0)],
+                           np.zeros((50, 100), np.uint8)) == [((0, 0, 100, 50), None)]
+
+
+def test_find_seam_axis_y_direct():
+    binary = np.zeros((120, 60), np.uint8)
+    binary[10:50, :] = 255
+    binary[70:110, :] = 255
+    cut = grid.find_seam(binary, boundary=60, window=30, axis="y", dilate_px=3)
+    assert 50 <= cut <= 70
