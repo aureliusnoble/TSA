@@ -24,6 +24,33 @@ def polygons_to_intervals(polygons: List[dict], axis: str) -> List[Band]:
     return sorted(out)
 
 
+def _intervals_with_orth(polygons: List[dict], axis: str):
+    """[(band interval, orthogonal extent interval)] per polygon bbox."""
+    i, j = (1, 0) if axis == "y" else (0, 1)
+    out = []
+    for p in polygons:
+        a = [pt[i] for pt in p["polygon"]]
+        o = [pt[j] for pt in p["polygon"]]
+        out.append(((float(min(a)), float(max(a))),
+                    (float(min(o)), float(max(o)))))
+    return sorted(out)
+
+
+def _merge_with_orth(items, merge_gap: float):
+    """merge_intervals on (band, orth) pairs; orth ranges union on merge."""
+    if not items:
+        return []
+    items = sorted(items)
+    out = [items[0]]
+    for (s, e), (o0, o1) in items[1:]:
+        (ps, pe), (po0, po1) = out[-1]
+        if s - pe <= merge_gap:
+            out[-1] = ((ps, max(pe, e)), (min(po0, o0), max(po1, o1)))
+        else:
+            out.append(((s, e), (o0, o1)))
+    return out
+
+
 def merge_intervals(intervals: List[Band], merge_gap: float) -> List[Band]:
     """Merge intervals that overlap or sit closer than merge_gap (same band)."""
     if not intervals:
@@ -92,24 +119,35 @@ def fill_gaps(intervals: List[Band], fill_trigger: float) -> List[Band]:
 
 
 def regularise(polygon_groups: List[List[dict]], axis: str, *,
-               merge_gap_frac: float = 0.10,
-               min_size_frac: float = 0.40,
-               fill_trigger_frac: float = 0.60) -> List[Band]:
+               merge_gap_frac: float = 0.05,
+               min_size_frac: float = 0.60,
+               fill_trigger_frac: float = 0.40,
+               min_orth_frac: float = 0.50) -> List[Band]:
     """polygon_groups: one list of polygons per parity class (odd, even).
     Fragments are merged WITHIN each group (fragments of one band overlap in
     projection; distinct same-parity bands are ~a full band apart), then the
     groups are pooled for overlap resolution and gap filling. Pooling before
-    merging would fuse adjacent odd/even bands, which genuinely touch."""
+    merging would fuse adjacent odd/even bands, which genuinely touch.
+
+    min_orth_frac guards on the ORTHOGONAL extent: a real band spans most of
+    the table's other axis, stray blob detections do not, and a single stray
+    far outside the table makes fill_gaps back-fill the whole false extent
+    with phantom bands. Bands whose pooled orthogonal span is below
+    min_orth_frac * (largest span) are dropped. Replaces the legacy absolute
+    w/h > 2000 gate; applied after within-parity merging so fragments of one
+    band pool their extents first."""
     per_group = []
     for polys in polygon_groups:
-        ivs = polygons_to_intervals(polys, axis)
-        if not ivs:
+        items = _intervals_with_orth(polys, axis)
+        if not items:
             continue
-        m = median(e - s for s, e in ivs)
-        per_group += merge_intervals(ivs, merge_gap=merge_gap_frac * m)
+        m = median(e - s for (s, e), _ in items)
+        per_group += _merge_with_orth(items, merge_gap=merge_gap_frac * m)
     if not per_group:
         return []
-    ivs = sorted(per_group)
+    max_orth = max(o1 - o0 for _, (o0, o1) in per_group)
+    ivs = sorted(iv for iv, (o0, o1) in per_group
+                 if (o1 - o0) >= min_orth_frac * max_orth)
     ivs = filter_small(ivs, min_frac=min_size_frac)
     ivs = resolve_overlaps(ivs)
     ivs = fill_gaps(ivs, fill_trigger=fill_trigger_frac)

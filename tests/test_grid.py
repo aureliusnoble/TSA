@@ -80,6 +80,20 @@ def test_regularise_merges_fragments_within_parity():
     assert len(bands) == 4
 
 
+def test_regularise_drops_narrow_strays_no_backfill():
+    # one real full-width band plus a stray blob far below: without the
+    # orthogonal-extent guard the stray extends the extent and fill_gaps
+    # back-fills the whole false span with phantom bands
+    polys = [poly(0, 100, 3800, 200), poly(1800, 2000, 1950, 2080)]
+    bands = grid.regularise([polys], axis="y")
+    assert bands == [(100.0, 200.0)]
+    # fragments of one band union their extents and survive the guard
+    odd = [poly(0, 100, 1800, 200), poly(1900, 105, 3800, 195)]
+    even = [poly(0, 200, 3800, 300)]
+    bands = grid.regularise([odd, even], axis="y")
+    assert len(bands) == 2
+
+
 def test_make_grid_and_assign_cell():
     rows = [(0.0, 100.0), (100.0, 200.0)]
     cols = [(0.0, 50.0), (50.0, 150.0)]
