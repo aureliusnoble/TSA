@@ -10,6 +10,9 @@ Usage:
     conda run -n TSA python -m experiments.eval_e2e --variants legacy
     conda run -n TSA python -m experiments.eval_e2e --variants B BC
     conda run -n TSA python -m experiments.eval_e2e            # all variants
+    conda run -n TSA python -m experiments.eval_e2e --rescore  # no GPU: rescore
+        every reconstructed table already in OUT/e2e_tables/ and rewrite
+        OUT/e2e_results.csv from scratch
 
 TED column alignment: the pipeline pivot has numeric column indices while the
 GT tables carry names, so both sides are mapped into the table-guide name
@@ -41,6 +44,7 @@ RESULT_COLS = ["page", "source", "variant", "gen",
 
 # Nievre GT names that were harmonised away from the guide vocabulary.
 ALIASES = {
+    "order number": "article number",
     "revenue of real estate": "declared assets income from buildings",
     "situation of real estate": "declared assets situation of buildings",
 }
@@ -72,7 +76,10 @@ def build_pipeline(variant, gen):
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
         yaml.safe_dump(base, fh)
         cfg = fh.name
-    pipe = Pipeline(cfg)
+    try:
+        pipe = Pipeline(cfg)
+    finally:
+        Path(cfg).unlink(missing_ok=True)
     if gen == "new":
         # Pipeline._initialize_models hardcodes the deployed means/stds, so the
         # new-generation weights are applied by reloading post-construction.
@@ -160,8 +167,42 @@ def score_page(nev, gt_df, pred_df):
 
 
 def append_result(path, row):
-    pd.DataFrame([row])[RESULT_COLS].to_csv(
-        path, mode="a", header=not path.exists(), index=False)
+    """Append `row`, first dropping any existing row for the same
+    (page, variant, gen) so --force reruns supersede rather than duplicate."""
+    new = pd.DataFrame([row])[RESULT_COLS]
+    if path.exists():
+        prev = pd.read_csv(path)
+        keep = ~((prev["page"] == row["page"])
+                 & (prev["variant"] == row["variant"])
+                 & (prev["gen"] == row["gen"]))
+        new = pd.concat([prev[keep], new], ignore_index=True)[RESULT_COLS]
+    new.to_csv(path, index=False)
+
+
+def rescore(nev, guide, pages, results_path, tables_dir):
+    """Recompute all three metrics for every reconstructed table already on
+    disk (no GPU needed) and rewrite e2e_results.csv from scratch.
+
+    The saved tables hold exactly what score_page saw on the original run:
+    string cells with NaN for empty ones, so they are read back with
+    dtype=str (empty fields -> NaN, as in the in-memory pivot).
+    """
+    rows = []
+    for variant in VARIANTS:
+        for gen in ("old", "new"):
+            for p in pages:
+                tpath = tables_dir / f"{p['page']}_{variant}_{gen}.csv"
+                if not tpath.is_file():
+                    print(f"  missing table, skipped: {tpath.name}")
+                    continue
+                pred = pd.read_csv(tpath, index_col="row", dtype=str)
+                gt_df = normalise_gt(nev.safe_read_csv(p["gt"]), p["source"],
+                                     p["table_type"], guide)
+                met = score_page(nev, gt_df, pred)
+                rows.append(dict(page=p["page"], source=p["source"],
+                                 variant=variant, gen=gen, **met))
+    pd.DataFrame(rows)[RESULT_COLS].to_csv(results_path, index=False)
+    print(f"Rescored {len(rows)} tables -> {results_path}")
 
 
 def main(argv=None):
@@ -174,17 +215,30 @@ def main(argv=None):
                     help="only the first N pages (sanity runs)")
     ap.add_argument("--force", action="store_true",
                     help="rerun combinations already present in e2e_results.csv")
+    ap.add_argument("--rescore", action="store_true",
+                    help="no GPU: rescore every table in e2e_tables/ against "
+                         "its GT and rewrite e2e_results.csv from scratch "
+                         "(ignores --variants/--gens/--limit/--force)")
     args = ap.parse_args(argv)
 
     nev = load_metrics_module()
     guide = e2e_gt.table_guide()
     pages = e2e_gt.pages()
-    if args.limit:
+    if args.limit and not args.rescore:
         pages = pages[:args.limit]
 
     results_path = common.OUT / "e2e_results.csv"
     tables_dir = common.OUT / "e2e_tables"
     tables_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.rescore:
+        rescore(nev, guide, pages, results_path, tables_dir)
+        res = pd.read_csv(results_path)
+        print("\nMeans by source/variant/gen:")
+        print(res.groupby(["source", "variant", "gen"])
+              [["loose_word_f1", "loose_char_f1", "ted_acc"]]
+              .mean().round(4).to_string())
+        return
     done = set()
     if results_path.exists() and not args.force:
         prev = pd.read_csv(results_path)
