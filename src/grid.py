@@ -130,3 +130,80 @@ def assign_cell(row_bands: List[Band], col_bands: List[Band],
                 cx: float, cy: float) -> str:
     """Centre-point cell lookup; points outside the table clamp to the edge."""
     return f"col{_band_index(col_bands, cx)}_row{_band_index(row_bands, cy)}"
+
+
+def find_seam(binary: np.ndarray, boundary: int, window: int, axis: str,
+              dilate_px: int) -> int:
+    """Lowest-ink seam within +/-window of boundary. axis='x': vertical cut
+    (dilate horizontally, column profile); axis='y': horizontal cut."""
+    if dilate_px > 1:
+        kernel = np.ones((1, dilate_px), np.uint8) if axis == "x" else \
+                 np.ones((dilate_px, 1), np.uint8)
+        binary = cv2.dilate(binary, kernel)
+    profile = binary.sum(axis=0) if axis == "x" else binary.sum(axis=1)
+    n = len(profile)
+    lo = max(0, int(boundary) - window)
+    hi = min(n, int(boundary) + window + 1)
+    if hi <= lo:
+        return int(np.clip(boundary, 0, n - 1))
+    seg = profile[lo:hi].astype(np.int64)
+    best = seg.min()
+    # among minima, take the one closest to the geometric boundary
+    idxs = np.flatnonzero(seg == best) + lo
+    return int(idxs[np.argmin(np.abs(idxs - boundary))])
+
+
+def _cut_positions(start: float, size: float, bands: List[Band],
+                   span_frac: float, min_piece_px: float, *, frac_of_band: bool) -> List[float]:
+    """Internal band edges crossing [start, start+size] worth cutting at."""
+    end = start + size
+    cuts = []
+    for s, e in sorted(bands)[:-1]:
+        edge = e  # internal boundary between this band and the next
+        if start + min_piece_px < edge < end - min_piece_px:
+            over = end - edge  # extension beyond the boundary
+            ref = (bands[_band_index(bands, edge + 1e-6) - 1][1] -
+                   bands[_band_index(bands, edge + 1e-6) - 1][0]) if frac_of_band else size
+            threshold = span_frac * ref
+            before = edge - start
+            if min(before, over) > max(threshold, min_piece_px):
+                cuts.append(edge)
+    return cuts
+
+
+def split_line(line_box, row_bands: List[Band], col_bands: List[Band],
+               binary_crop: np.ndarray, *,
+               col_span_frac: float = 0.15, row_span_frac: float = 0.60,
+               window_px: int = 40, dilate_px: int = 7,
+               min_piece_px: int = 20):
+    """Split a text-line bbox at column/row boundaries it meaningfully crosses.
+    Returns [((x, y, w, h), cell_name), ...] in page coordinates."""
+    x, y, w, h = line_box
+    xcuts = _cut_positions(x, w, col_bands, col_span_frac, min_piece_px, frac_of_band=False)
+    ycuts = _cut_positions(y, h, row_bands, row_span_frac, min_piece_px, frac_of_band=True)
+
+    def seam(boundary, axis):
+        rel = boundary - (x if axis == "x" else y)
+        cut = find_seam(binary_crop, int(round(rel)), window_px, axis, dilate_px)
+        return cut + (x if axis == "x" else y)
+
+    xs = [x] + [seam(c, "x") for c in xcuts] + [x + w]
+    ys = [y] + [seam(c, "y") for c in ycuts] + [y + h]
+    xs, ys = sorted(set(xs)), sorted(set(ys))
+
+    pieces = []
+    for y0, y1 in zip(ys, ys[1:]):
+        for x0, x1 in zip(xs, xs[1:]):
+            pw, ph = x1 - x0, y1 - y0
+            if pw < min_piece_px or ph < min_piece_px:
+                if pieces:  # merge sliver into previous piece in reading order
+                    (px_, py_, pw_, ph_), _ = pieces[-1]
+                    pieces[-1] = ((px_, min(py_, y0), max(px_ + pw_, x1) - px_,
+                                   max(py_ + ph_, y1) - min(py_, y0)), pieces[-1][1])
+                    continue
+            cell = assign_cell(row_bands, col_bands, (x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            pieces.append(((x0, y0, pw, ph), cell))
+    if not pieces:
+        pieces = [((x, y, w, h),
+                   assign_cell(row_bands, col_bands, x + w / 2.0, y + h / 2.0))]
+    return pieces

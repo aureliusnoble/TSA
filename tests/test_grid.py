@@ -72,3 +72,54 @@ def test_make_grid_and_assign_cell():
     assert grid.assign_cell(rows, cols, cx=75, cy=150) == "col2_row2"
     # outside points clamp instead of falling back to col1_row1
     assert grid.assign_cell(rows, cols, cx=9999, cy=-5) == "col2_row1"
+
+
+def synth_line(w=400, h=60, words=((10, 120), (160, 260), (300, 390))):
+    """White canvas with black 'words' (ink=255 in returned binary mask)."""
+    img = np.zeros((h, w), np.uint8)
+    for x0, x1 in words:
+        img[15:45, x0:x1] = 255
+    return img
+
+
+def test_find_seam_prefers_ink_valley():
+    binary = synth_line()
+    # boundary at 150 sits in the gap between words 1 and 2 (120..160)
+    cut = grid.find_seam(binary, boundary=140, window=40, axis="x", dilate_px=3)
+    assert 120 <= cut <= 160
+
+
+def test_find_seam_falls_back_near_boundary():
+    binary = np.full((60, 400), 255, np.uint8)  # solid ink, no valley
+    cut = grid.find_seam(binary, boundary=200, window=40, axis="x", dilate_px=3)
+    assert 160 <= cut <= 240
+
+
+def test_split_line_cuts_column_spanner():
+    rows = [(0.0, 100.0)]
+    cols = [(0.0, 200.0), (200.0, 400.0)]
+    binary = synth_line()  # 400 wide; word gap 120..160 near-ish boundary 200? gap 260..300 nearer
+    pieces = grid.split_line((0, 20, 400, 60), rows, cols, binary)
+    assert len(pieces) == 2
+    (b1, c1), (b2, c2) = pieces
+    assert c1 == "col1_row1" and c2 == "col2_row1"
+    assert b1[0] == 0 and b2[0] + b2[2] == 400  # pieces cover the line
+    assert b1[0] + b1[2] == b2[0]               # and abut at the cut
+
+
+def test_split_line_keeps_minor_overhang_whole():
+    rows = [(0.0, 100.0)]
+    cols = [(0.0, 380.0), (380.0, 800.0)]  # only 20/400 = 5% overhang
+    pieces = grid.split_line((0, 20, 400, 60), rows, cols, synth_line())
+    assert len(pieces) == 1 and pieces[0][1] == "col1_row1"
+
+
+def test_split_line_cuts_stacked_rows():
+    rows = [(0.0, 60.0), (60.0, 120.0)]
+    cols = [(0.0, 400.0)]
+    binary = np.zeros((120, 400), np.uint8)
+    binary[10:50, 20:380] = 255   # line 1
+    binary[70:110, 20:380] = 255  # line 2 (valley 50..70 around boundary 60)
+    pieces = grid.split_line((0, 0, 400, 120), rows, cols, binary)
+    assert len(pieces) == 2
+    assert {c for _, c in pieces} == {"col1_row1", "col1_row2"}
