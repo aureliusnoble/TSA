@@ -18,3 +18,5 @@ examples/tmp
 models/*
 !models/
 models.zip
+experiments/outputs/
+logs/
