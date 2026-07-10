@@ -44,6 +44,11 @@ def _models():
         rd = TRAIN / "runs" / run
         mean, std = _mean_std(rd)
         m[(kind, "new")] = dict(path=rd / "model.pth", mean=mean, std=std, classes=4)
+    # newest rows model (156-page v7 retrain); columns unchanged from "new"
+    rd = TRAIN / "runs" / "rows_v7"
+    if (rd / "model.pth").exists():
+        mean, std = _mean_std(rd)
+        m[("rows", "v7")] = dict(path=rd / "model.pth", mean=mean, std=std, classes=4)
     return m
 
 
