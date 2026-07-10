@@ -79,3 +79,35 @@ def test_extract_line_images_parses_multidigit_cell_names():
     assert metadata["cell_name"] == "col3_row5"
     assert metadata["column"] == "3"
     assert metadata["row"] == "5"
+
+
+def test_extract_line_images_cells_split_skips_degenerate_polygon():
+    # line_split="cells": a wide line crossing a column boundary is split into
+    # per-cell pieces; a degenerate polygon whose clamped bbox is empty (all
+    # points at the image edge, so w clamps to 0) must not reach cv2.cvtColor,
+    # which asserts on an empty crop and would drop the whole page.
+    self = SimpleNamespace(
+        config=SimpleNamespace(line_split="cells"),
+        _row_bands=[(0.0, 200.0)],
+        _col_bands=[(0.0, 200.0), (200.0, 400.0)],
+    )
+
+    image = np.full((200, 400, 3), 255, dtype=np.uint8)
+    image[85:115, 60:180] = 0    # ink left of the column boundary at x=200
+    image[85:115, 220:340] = 0   # ink right of it; boundary itself ink-free
+
+    polygons = {1: [
+        {"confidence": 1.0,  # spans both column bands
+         "polygon": [[50, 80], [350, 80], [350, 120], [50, 120]]},
+        {"confidence": 1.0,  # degenerate: bbox x=400 on a 400-wide image
+         "polygon": [[400, 10], [400, 10], [400, 10]]},
+    ]}
+
+    assigned = Pipeline._extract_line_images_memory(
+        self, image, polygons, header_y2=0, grid_cells={}, filename="f.jpg")
+
+    # normal line split into one piece per column band; degenerate skipped
+    assert len(assigned) == 2
+    assert {m["pre_cell"] for _, m in assigned} == {"col1_row1", "col2_row1"}
+    assert all(m["w"] > 0 and m["h"] > 0 for _, m in assigned)
+    assert all(img.size > 0 for img, _ in assigned)

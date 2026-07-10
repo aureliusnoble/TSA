@@ -757,7 +757,8 @@ class Pipeline:
                 
                 pieces = [((x, y, w, h), None)]
                 if (getattr(self.config, "line_split", "off") == "cells"
-                        and self._row_bands and self._col_bands and category == 1):
+                        and self._row_bands and self._col_bands and category == 1
+                        and w > 0 and h > 0):
                     crop_gray = cv2.cvtColor(image[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
                     _, crop_bin = cv2.threshold(
                         crop_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
