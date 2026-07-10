@@ -1,0 +1,32 @@
+# Base pipeline config for the end-to-end evaluation (experiments/eval_e2e.py).
+# Copy of configs/example.yaml with all paths absolute. Row/column extraction
+# point at the OLD deployed models; gen "new" reloads weights post-construction
+# in eval_e2e.build_pipeline (the mean/std passed to DocUFCN.load are hardcoded
+# in Pipeline._initialize_models, so a path swap here would be wrong).
+
+models:
+  transcription:
+    path: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/models/transcription_full"
+    batch_size: 16
+    precision: "half"
+    num_beams: 1
+
+  line_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/models/textlines_full/model.pth"
+  row_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/models/rows_full/model.pth"
+  column_extraction: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/models/columns_full/model.pth"
+
+directories:
+  input: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Data/End_to_End/Raw"
+  output: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/experiments/outputs/e2e_pipeline_out"
+  temp: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/experiments/outputs/e2e_tmp"
+
+  page_classification: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/layout_classification/page_classifications.csv"
+  table_guide: "/home/aurelius/Dropbox/Work/PhD/Projects/(TSA)Tables_des_Successions_et_Absences/Core/Code/Libraries/TSA/layout_classification/table_layouts.csv"
+
+device: "cuda"
+batch_size: 1
+target_width: 3840
+
+# Overwritten per variant by eval_e2e.py
+grid_method: "legacy"
+line_split: "off"
