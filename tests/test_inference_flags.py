@@ -55,3 +55,27 @@ def test_process_grid_cells_regularised_branch():
     assert len(cells) == 9  # 3 rows x 3 cols
     assert self._row_bands and self._col_bands
     assert all(len(v) == 4 for v in cells.values())
+
+
+def test_extract_line_images_parses_multidigit_cell_names():
+    # Cell names are "colN_rowM" (2 underscore-separated parts); the old parser
+    # expected >= 4 parts so every line fell back to column='1', row='1'.
+    self = SimpleNamespace(
+        config=SimpleNamespace(line_split="off"),
+        _row_bands=None, _col_bands=None,
+    )
+    self._find_cell_assignment = lambda *a: Pipeline._find_cell_assignment(self, *a)
+
+    image = np.full((200, 200, 3), 255, dtype=np.uint8)
+    polygons = {1: [{"confidence": 1.0,
+                     "polygon": [[60, 110], [140, 110], [140, 130], [60, 130]]}]}
+    grid_cells = {"col3_row5": (50, 100, 100, 50)}
+
+    assigned = Pipeline._extract_line_images_memory(
+        self, image, polygons, header_y2=0, grid_cells=grid_cells, filename="f.jpg")
+
+    assert len(assigned) == 1
+    _, metadata = assigned[0]
+    assert metadata["cell_name"] == "col3_row5"
+    assert metadata["column"] == "3"
+    assert metadata["row"] == "5"

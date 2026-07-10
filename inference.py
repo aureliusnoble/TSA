@@ -17,6 +17,7 @@ Performance improvements:
 import argparse
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -797,11 +798,11 @@ class Pipeline:
                     metadata['w'], metadata['h'], grid_cells)
 
             if cell_name:
-                # Parse cell name to get row and column
-                parts = cell_name.split('_')
-                if len(parts) >= 4:
-                    column = parts[1].replace('col', '')
-                    row = parts[3].replace('row', '')
+                # Parse cell name ("colN_rowM") to get row and column
+                m = re.match(r"col(\d+)_row(\d+)", cell_name)
+                if m:
+                    column = m.group(1)
+                    row = m.group(2)
                 else:
                     column = '1'
                     row = '1'
