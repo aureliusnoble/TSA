@@ -38,6 +38,7 @@ import pandas as pd
 from collections import Counter
 
 import src.tsa_utils as tsa
+import src.grid as grid_v2
 from doc_ufcn.main import DocUFCN
 from src.recognise import TextRecognizer
 import warnings
@@ -195,6 +196,10 @@ class Config(BaseModel):
     device: Optional[str] = Field("cuda" if torch.cuda.is_available() else "cpu")
     batch_size: int = Field(1, ge=1)
     target_width: int = Field(3840, ge=1, description="Target width for image resizing")
+    grid_method: str = Field("legacy", pattern="^(legacy|regularised)$",
+                             description="Cell grid reconstruction method")
+    line_split: str = Field("off", pattern="^(off|cells)$",
+                            description="Split text-line crops along cell boundaries")
 
 class Pipeline:
     """
@@ -225,7 +230,11 @@ class Pipeline:
         # Get target width from config (default to 3840 if not specified)
         self.target_width = getattr(self.config, 'target_width', 3840)
         logger.info(f"Target image width set to: {self.target_width} pixels")
-        
+
+        # Regularised grid bands (populated per page when grid_method == "regularised")
+        self._row_bands = None
+        self._col_bands = None
+
         self._initialize_components()
         
     def _load_config(self, config_path: str) -> Config:
@@ -745,29 +754,29 @@ class Pipeline:
                 w = min(image.shape[1] - x, w + 2 * padding)
                 h = min(image.shape[0] - y, h + 2 * padding)
                 
-                # Extract the line image
-                line_img = image[y:y+h, x:x+w]
-                
-                # Skip if image is empty
-                if line_img.size == 0:
-                    continue
-                
-                # Determine if this is a header
-                is_header = (category == 2) or (y + h/2 < header_y2)
-                
-                # Create metadata
-                metadata = {
-                    'x': x,
-                    'y': y,
-                    'w': w,
-                    'h': h,
-                    'category': category,
-                    'is_header': is_header,
-                    'polygon': polygon,
-                    'filename': filename
-                }
-                
-                line_images_data.append((line_img, metadata))
+                pieces = [((x, y, w, h), None)]
+                if (getattr(self.config, "line_split", "off") == "cells"
+                        and self._row_bands and self._col_bands and category == 1):
+                    crop_gray = cv2.cvtColor(image[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
+                    _, crop_bin = cv2.threshold(
+                        crop_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+                    pieces = grid_v2.split_line(
+                        (x, y, w, h), self._row_bands, self._col_bands, crop_bin)
+
+                for (px, py, pw, ph), pre_cell in pieces:
+                    px, py, pw, ph = int(px), int(py), int(pw), int(ph)
+                    line_img = image[py:py+ph, px:px+pw]
+                    if line_img.size == 0:
+                        continue
+                    is_header = (category == 2) or (py + ph / 2 < header_y2)
+                    metadata = {
+                        'x': px, 'y': py, 'w': pw, 'h': ph,
+                        'category': category, 'is_header': is_header,
+                        'polygon': polygon, 'filename': filename,
+                        'pre_cell': pre_cell,
+                        'parent_line': (x, y, w, h),
+                    }
+                    line_images_data.append((line_img, metadata))
         
         logger.info(f"Extracted {len(line_images_data)} line images in memory")
         
@@ -775,12 +784,18 @@ class Pipeline:
         assigned_images = []
         for line_img, metadata in line_images_data:
             # Find which cell this line belongs to
-            cell_name = self._find_cell_assignment(
-                metadata['x'], metadata['y'], 
-                metadata['w'], metadata['h'], 
-                grid_cells
-            )
-            
+            if metadata.get('pre_cell'):
+                cell_name = metadata['pre_cell']
+            elif self._row_bands and self._col_bands:
+                cell_name = grid_v2.assign_cell(
+                    self._row_bands, self._col_bands,
+                    metadata['x'] + metadata['w'] / 2,
+                    metadata['y'] + metadata['h'] / 2)
+            else:
+                cell_name = self._find_cell_assignment(
+                    metadata['x'], metadata['y'],
+                    metadata['w'], metadata['h'], grid_cells)
+
             if cell_name:
                 # Parse cell name to get row and column
                 parts = cell_name.split('_')
@@ -1052,6 +1067,14 @@ class Pipeline:
 
     def _process_grid_cells(self, polygons_col, polygons_row, width, height):
         """Process grid cells from polygons"""
+        if getattr(self.config, "grid_method", "legacy") == "regularised":
+            rows_polys = self.ts.combine_polygons(polygons_row, [2, 3])
+            cols_polys = self.ts.combine_polygons(polygons_col, [2, 3])
+            self._row_bands = grid_v2.regularise(rows_polys, axis="y")
+            self._col_bands = grid_v2.regularise(cols_polys, axis="x")
+            return grid_v2.make_grid(self._row_bands, self._col_bands)
+        self._row_bands = None
+        self._col_bands = None
         polygons_col_unified = self.ts.combine_polygons(polygons_col, [2,3])
         polygons_row_unified = self.ts.combine_polygons(polygons_row, [2,3])
 
