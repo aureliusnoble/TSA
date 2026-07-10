@@ -33,13 +33,13 @@ def band_poly(x0, y0, x1, y1):
 
 def fake_polys(axis):
     # 3 clean bands in classes 2/3 (odd/even), 4-class doc-ufcn dict.
-    # Small gaps between bands (as in real doc-ufcn output): exactly touching
-    # bands would be merged into one by regularise's merge_intervals step.
+    # Adjacent odd/even bands EXACTLY TOUCH, as in real tables: per-parity
+    # fragment merging must keep them distinct (pooled merging would fuse them).
     if axis == "y":
         mk = lambda a, b: band_poly(0, a, 3800, b)
     else:
         mk = lambda a, b: band_poly(a, 0, b, 2800)
-    return {1: [], 2: [mk(0, 350), mk(800, 1150)], 3: [mk(400, 750)]}
+    return {1: [], 2: [mk(0, 400), mk(800, 1200)], 3: [mk(400, 800)]}
 
 
 def _bare_pipeline(grid_method):

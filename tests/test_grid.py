@@ -55,12 +55,29 @@ def test_fill_gaps_extends_neighbours_for_small_gap():
 def test_regularise_end_to_end_tiles():
     polys = [poly(0, 0, 3800, 90), poly(0, 100, 1800, 190), poly(1900, 105, 3800, 190),
              poly(0, 500, 3800, 600)]  # second band fragmented, big gap after
-    bands = grid.regularise(polys, axis="y")
+    bands = grid.regularise([polys], axis="y")
     for (s0, e0), (s1, e1) in zip(bands, bands[1:]):
         assert e0 == pytest.approx(s1)
     assert bands[0][0] == 0 and bands[-1][1] == 600
     # gap 190..500 (~310) with median ~95 -> 3 inserted bands: total 2+3+1
     assert len(bands) == 6
+
+
+def test_regularise_does_not_fuse_touching_alternating_bands():
+    # odd rows and even rows alternate and TOUCH; they must remain distinct
+    odd = [poly(0, 0, 3800, 100), poly(0, 200, 3800, 300)]
+    even = [poly(0, 100, 3800, 200), poly(0, 300, 3800, 400)]
+    bands = grid.regularise([odd, even], axis="y")
+    assert len(bands) == 4
+    assert bands == [(0.0, 100.0), (100.0, 200.0), (200.0, 300.0), (300.0, 400.0)]
+
+
+def test_regularise_merges_fragments_within_parity():
+    # one odd row predicted as two horizontal fragments (overlapping y-intervals)
+    odd = [poly(0, 0, 1800, 100), poly(1900, 5, 3800, 95), poly(0, 200, 3800, 300)]
+    even = [poly(0, 100, 3800, 200), poly(0, 300, 3800, 400)]
+    bands = grid.regularise([odd, even], axis="y")
+    assert len(bands) == 4
 
 
 def test_make_grid_and_assign_cell():

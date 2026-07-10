@@ -91,16 +91,25 @@ def fill_gaps(intervals: List[Band], fill_trigger: float) -> List[Band]:
     return out
 
 
-def regularise(polygons: List[dict], axis: str, *,
+def regularise(polygon_groups: List[List[dict]], axis: str, *,
                merge_gap_frac: float = 0.10,
                min_size_frac: float = 0.40,
                fill_trigger_frac: float = 0.60) -> List[Band]:
-    """polygons (odd+even combined) -> clean, tiling band list."""
-    ivs = polygons_to_intervals(polygons, axis)
-    if not ivs:
+    """polygon_groups: one list of polygons per parity class (odd, even).
+    Fragments are merged WITHIN each group (fragments of one band overlap in
+    projection; distinct same-parity bands are ~a full band apart), then the
+    groups are pooled for overlap resolution and gap filling. Pooling before
+    merging would fuse adjacent odd/even bands, which genuinely touch."""
+    per_group = []
+    for polys in polygon_groups:
+        ivs = polygons_to_intervals(polys, axis)
+        if not ivs:
+            continue
+        m = median(e - s for s, e in ivs)
+        per_group += merge_intervals(ivs, merge_gap=merge_gap_frac * m)
+    if not per_group:
         return []
-    m = median(e - s for s, e in ivs)
-    ivs = merge_intervals(ivs, merge_gap=merge_gap_frac * m)
+    ivs = sorted(per_group)
     ivs = filter_small(ivs, min_frac=min_size_frac)
     ivs = resolve_overlaps(ivs)
     ivs = fill_gaps(ivs, fill_trigger=fill_trigger_frac)

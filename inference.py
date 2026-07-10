@@ -1068,10 +1068,10 @@ class Pipeline:
     def _process_grid_cells(self, polygons_col, polygons_row, width, height):
         """Process grid cells from polygons"""
         if getattr(self.config, "grid_method", "legacy") == "regularised":
-            rows_polys = self.ts.combine_polygons(polygons_row, [2, 3])
-            cols_polys = self.ts.combine_polygons(polygons_col, [2, 3])
-            self._row_bands = grid_v2.regularise(rows_polys, axis="y")
-            self._col_bands = grid_v2.regularise(cols_polys, axis="x")
+            self._row_bands = grid_v2.regularise(
+                [polygons_row.get(2, []), polygons_row.get(3, [])], axis="y")
+            self._col_bands = grid_v2.regularise(
+                [polygons_col.get(2, []), polygons_col.get(3, [])], axis="x")
             return grid_v2.make_grid(self._row_bands, self._col_bands)
         self._row_bands = None
         self._col_bands = None
