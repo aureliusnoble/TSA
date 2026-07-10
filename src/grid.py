@@ -196,7 +196,7 @@ def _drop_sliver_cuts(positions: List[float], min_piece_px: float) -> List[float
 
 def split_line(line_box, row_bands: List[Band], col_bands: List[Band],
                binary_crop: np.ndarray, *,
-               col_span_frac: float = 0.15, row_span_frac: float = 0.60,
+               col_span_frac: float = 0.10, row_span_frac: float = 0.40,
                window_px: int = 40, dilate_px: int = 7,
                min_piece_px: int = 20):
     """Split a text-line bbox at column/row boundaries it meaningfully crosses.
