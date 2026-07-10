@@ -18,6 +18,12 @@ ROW_SPAN = [0.40, 0.60, 0.80]
 WINDOW = [20, 40, 60]
 DILATE = [3, 7, 11]
 
+# Boundary slop in work-scale pixels (~0.26% of page width at 3840). Must stay
+# well below typical line height (~100-150px): a page-relative tolerance
+# (0.02 * max(w, h) ~ 77px) exceeded the height of most text-line crops, so
+# they registered zero cells and silently inflated frac_single_cell.
+TOL_PX = 10
+
 
 def line_boxes(tl_pred):
     out = []
@@ -37,60 +43,64 @@ def crop_binary(img, box):
     return b
 
 
-def containment(box, rb, cb, tol):
-    """Cells whose area overlaps box by more than tol on each axis."""
+def containment(box, rb, cb):
+    """Cells whose area overlaps box by more than TOL_PX on each axis."""
     x, y, w, h = box
     hit = set()
     for r, (ry0, ry1) in enumerate(sorted(rb), 1):
         oy = min(y + h, ry1) - max(y, ry0)
-        if oy <= tol:
+        if oy <= TOL_PX:
             continue
         for c, (cx0, cx1) in enumerate(sorted(cb), 1):
             ox = min(x + w, cx1) - max(x, cx0)
-            if ox > tol:
+            if ox > TOL_PX:
                 hit.add((c, r))
     return hit
 
 
-def page_stats(boxes_or_pieces, rb, cb, tol):
+def page_stats(boxes_or_pieces, rb, cb):
     single = 0
     multi = 0
+    none = 0
     per_cell = {}
     for box in boxes_or_pieces:
-        cells = containment(box, rb, cb, tol)
-        if len(cells) <= 1:
+        cells = containment(box, rb, cb)
+        if len(cells) == 0:
+            none += 1
+        elif len(cells) == 1:
             single += 1
             for cell in cells:
                 per_cell[cell] = per_cell.get(cell, 0) + 1
         else:
             multi += 1
     nonempty = len(per_cell)
-    return dict(frac_single_cell=single / max(1, len(boxes_or_pieces)),
+    total = max(1, len(boxes_or_pieces))
+    return dict(frac_single_cell=single / total,
+                frac_no_cell=none / total,
                 multi_cell_crops=multi,
                 crops_per_nonempty_cell=(sum(per_cell.values()) / nonempty)
                 if nonempty else 0.0)
 
 
 def page_setup(page):
-    """GT bands, tolerance and (box, binary crop) pairs for one page.
+    """GT bands and (box, binary crop) pairs for one page.
     The binary crop depends only on the box, never on sweep parameters, so it
     is computed once per line and reused across every config."""
     tl = common.predict_cached("textlines", "old", page)
     w, h = tl["work_w"], tl["work_h"]
     rb = common.load_gt_bands(page["rows_gt"], "y", w, h)
     cb = common.load_gt_bands(page["cols_gt"], "x", w, h)
-    tol = 0.02 * max(w, h)
     img = common.load_page(page["source"])
     lines = [(box, crop_binary(img, box)) for box in line_boxes(tl)]
-    return lines, rb, cb, tol
+    return lines, rb, cb
 
 
 def sweep(pages):
     out_rows = []
     for page in pages:
         t0 = time.time()
-        lines, rb, cb, tol = page_setup(page)
-        base = page_stats([b for b, _ in lines], rb, cb, tol)
+        lines, rb, cb = page_setup(page)
+        base = page_stats([b for b, _ in lines], rb, cb)
         out_rows.append(dict(variant="whole", col=None, row=None, win=None,
                              dil=None, page=page["stem"], **base))
         for cs, rs, wi, di in itertools.product(COL_SPAN, ROW_SPAN, WINDOW, DILATE):
@@ -99,7 +109,7 @@ def sweep(pages):
                 pieces += [b for b, _ in grid_v2.split_line(
                     box, rb, cb, bcrop, col_span_frac=cs, row_span_frac=rs,
                     window_px=wi, dilate_px=di)]
-            rep = page_stats(pieces, rb, cb, tol)
+            rep = page_stats(pieces, rb, cb)
             out_rows.append(dict(variant="split", col=cs, row=rs, win=wi,
                                  dil=di, page=page["stem"], **rep))
         print(f"done {page['stem']} ({len(lines)} lines, "
@@ -147,6 +157,7 @@ def main():
         df.to_csv(common.OUT / "linesplit_sweep.csv", index=False)
         summary = (df.groupby(["variant", "col", "row", "win", "dil"], dropna=False)
                      .agg(frac_single=("frac_single_cell", "mean"),
+                          frac_none=("frac_no_cell", "mean"),
                           multi=("multi_cell_crops", "mean"),
                           per_cell=("crops_per_nonempty_cell", "mean"))
                      .reset_index().sort_values("frac_single", ascending=False))
