@@ -205,6 +205,14 @@ class Config(BaseModel):
                                  description="Doc-UFCN input size for the textline model; "
                                              "the deployed model was trained at 1500 "
                                              "(runs/exp1 config), not 768")
+    row_norm_mean: List[int] = Field([228, 228, 228],
+                                     description="Row model normalization mean (per channel)")
+    row_norm_std: List[int] = Field([71, 71, 71],
+                                    description="Row model normalization std (per channel)")
+    col_norm_mean: List[int] = Field([229, 229, 229],
+                                     description="Column model normalization mean (per channel)")
+    col_norm_std: List[int] = Field([71, 71, 71],
+                                    description="Column model normalization std (per channel)")
 
 class Pipeline:
     """
@@ -395,19 +403,21 @@ class Pipeline:
                 std=[80, 80, 80]
             )
 
-            # Row/Column models
+            # Row/Column models. Normalization stats are per-model training
+            # values; defaults match the original deployed models and are
+            # overridden from the config for retrained weights.
             self.row_model = DocUFCN(4, 768, self.device)
             self.row_model.load(
                 Path(self.config.models.row_extraction),
-                [228, 228, 228],
-                [71, 71, 71]
+                getattr(self.config, "row_norm_mean", [228, 228, 228]),
+                getattr(self.config, "row_norm_std", [71, 71, 71])
             )
 
             self.col_model = DocUFCN(4, 768, self.device)
             self.col_model.load(
                 Path(self.config.models.column_extraction),
-                [229, 229, 229],
-                [71, 71, 71]
+                getattr(self.config, "col_norm_mean", [229, 229, 229]),
+                getattr(self.config, "col_norm_std", [71, 71, 71])
             )
 
             # Initialize the TextRecognizer based on configuration

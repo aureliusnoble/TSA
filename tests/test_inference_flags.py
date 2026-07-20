@@ -117,3 +117,15 @@ def test_line_input_size_default_matches_training():
     cfg = Config(**BASE_CFG)
     assert cfg.line_input_size == 1500
     assert Config(**BASE_CFG, line_input_size=768).line_input_size == 768
+
+
+def test_recommended_config_parses():
+    import yaml
+    from pathlib import Path
+    data = yaml.safe_load(Path("configs/recommended_grid_v2.yaml").read_text())
+    cfg = Config(**data)
+    assert cfg.grid_method == "regularised" and cfg.line_split == "cells"
+    assert cfg.line_input_size == 1500
+    assert cfg.row_norm_mean == [190, 188, 182] and cfg.row_norm_std == [53, 52, 51]
+    assert cfg.col_norm_mean == [189, 187, 183] and cfg.col_norm_std == [57, 56, 55]
+    assert cfg.models.row_extraction.endswith("rows_v7/model.pth")

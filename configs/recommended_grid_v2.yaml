@@ -1,0 +1,44 @@
+# Recommended production configuration (grid-v2 branch, 2026-07-20).
+#
+# Captures the full parameter set validated in the pipeline-improvement study
+# (Noah_Paper docs/pipeline_retraining/09 + 10) and the textline input-size fix:
+#   - rows model:    models/rows_v7   (156-page retrain; row-line F1 0.783 vs 0.661 deployed)
+#   - columns model: models/cols_b    (retrained; column F1 ~0.91 vs ~0.65 deployed)
+#   - textline model at its TRAINED input size 1500 (not 768; object F1 0.79 vs 0.39)
+#   - regularised grid + cell-aware line splitting (opt-in flags; geometric wins on the
+#     val pages; end-to-end parity or better vs legacy after the textline fix)
+# Grid/split internal defaults (merge 0.05, drop 0.60, fill 0.40, orth 0.50;
+# col_span 0.10, row_span 0.40, window 40, dilate 7) live in src/grid.py.
+# End-to-end on the 25 GT pages this configuration scores approximately
+# word F1 0.57, char F1 0.84, TED accuracy 0.62 (vs 0.43/0.71/0.36 for the
+# previous production setup).
+
+models:
+  transcription:
+    path: "models/transcription_full"
+    batch_size: 16
+    precision: "half"
+    num_beams: 1
+
+  line_extraction: "models/textlines_full/model.pth"
+  row_extraction: "models/rows_v7/model.pth"
+  column_extraction: "models/cols_b/model.pth"
+
+directories:
+  input: "examples/inputs"
+  output: "examples/outputs"
+  temp: "examples/tmp"
+  page_classification: "layout_classification/page_classifications.csv"
+  table_guide: "layout_classification/table_layouts.csv"
+
+# Pipeline behaviour (validated settings)
+grid_method: "regularised"
+line_split: "cells"
+line_input_size: 1500
+
+# Normalization stats for the retrained row/column models (from their training
+# runs; the old deployed models used 228/71 and 229/71).
+row_norm_mean: [190, 188, 182]
+row_norm_std: [53, 52, 51]
+col_norm_mean: [189, 187, 183]
+col_norm_std: [57, 56, 55]

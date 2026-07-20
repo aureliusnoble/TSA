@@ -99,11 +99,13 @@ def main():
     out_dir = common.OUT / "assignment_panels"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    from experiments.overlay_textline_panels import predict_1500
+
     rows_gen = "v7" if ("rows", "v7") in common.MODELS else "new"
     for page in common.val_pages():
         rp = common.predict_cached("rows", rows_gen, page)
         cp = common.predict_cached("cols", "new", page)
-        tl = common.predict_cached("textlines", "old", page)
+        tl = predict_1500(page)  # textlines at trained input size 1500 (post-fix)
         img = common.load_page(page["source"])
         w, h = rp["work_w"], rp["work_h"]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
