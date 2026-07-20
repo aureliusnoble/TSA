@@ -201,6 +201,10 @@ class Config(BaseModel):
                              description="Cell grid reconstruction method")
     line_split: str = Field("off", pattern="^(off|cells)$",
                             description="Split text-line crops along cell boundaries")
+    line_input_size: int = Field(1500, ge=256,
+                                 description="Doc-UFCN input size for the textline model; "
+                                             "the deployed model was trained at 1500 "
+                                             "(runs/exp1 config), not 768")
 
 class Pipeline:
     """
@@ -380,8 +384,11 @@ class Pipeline:
     def _initialize_models(self):
         """Initialize all ML models"""
         try:
-            # Line extraction model
-            self.line_model = DocUFCN(3, 768, self.device)
+            # Line extraction model. The deployed textline model was trained at
+            # input size 1500 (training run config); running it at 768 halves
+            # object-level detection F1 (0.79 -> 0.39 on the lines test set).
+            self.line_model = DocUFCN(
+                3, getattr(self.config, "line_input_size", 1500), self.device)
             self.line_model.load(
                 Path(self.config.models.line_extraction),
                 mean=[221, 221, 221],
@@ -1008,7 +1015,8 @@ class Pipeline:
             # Text line extraction
             line_extract_start = time.time()
             polygons, _, _, overlap_textline = self.line_model.predict(
-                image_binary, raw_output=True, mask_output=True, overlap_output=False
+                image_binary, min_cc=1, raw_output=True, mask_output=True,
+                overlap_output=False
             )
             line_extract_time = time.time() - line_extract_start
             logger.info(f"Line extraction took {line_extract_time:.2f}s")

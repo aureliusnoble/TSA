@@ -111,3 +111,9 @@ def test_extract_line_images_cells_split_skips_degenerate_polygon():
     assert {m["pre_cell"] for _, m in assigned} == {"col1_row1", "col2_row1"}
     assert all(m["w"] > 0 and m["h"] > 0 for _, m in assigned)
     assert all(img.size > 0 for img, _ in assigned)
+
+
+def test_line_input_size_default_matches_training():
+    cfg = Config(**BASE_CFG)
+    assert cfg.line_input_size == 1500
+    assert Config(**BASE_CFG, line_input_size=768).line_input_size == 768
