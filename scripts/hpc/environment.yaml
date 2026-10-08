@@ -41,6 +41,9 @@ dependencies:
       - pillow==11.3.0
       - requests==2.32.5
       - shapely==1.8.5.post1
+      # boto3: S3 fallback used by setup_env.sh to fetch the large model
+      # weights when the aws CLI is not installed on the cluster.
+      - boto3
       # doc-ufcn 0.2.0rc4 uses pkg_resources at import; setuptools 81+ removed it.
       # The validated env has setuptools 75.6.0; keep it below 81.
       - "setuptools<81"

@@ -37,37 +37,56 @@ bash   scripts/hpc/run_department.sh   Paris
 
 # 5. Collect results: one compact archive per departement
 ls results/                 # Paris.tar.gz, Nievre.tar.gz, ...
-# download results/*.tar.gz to your machine (scp/rsync/sftp)
 ```
 
 Each archive contains the pipeline's CSV tables (one CSV per page) plus a
 `manifest.txt`. Departement names are accent-tolerant: `Nievre`, `Nièvre` and
 `NIEVRE` all resolve to the same job.
 
+### Downloading the results to your laptop
+
+By default `run_department.sh` also uploads each archive to
+`s3://tsatransferaurelius/results/`, so you can pull the whole set to your own
+machine with a single command (no cluster login needed):
+
+```bash
+aws s3 sync s3://tsatransferaurelius/results/ ./results/
+```
+
+Local copies also live in the cluster's `results/` directory if you prefer
+`scp`/`rsync`. To disable the S3 upload, set `TSA_RESULTS_S3=""` (see section 6).
+
 ---
 
-## 2. Model weights (READ THIS before your first GPU job)
+## 2. Model weights
 
-The production config `configs/recommended_grid_v2.yaml` references four models:
+The pipeline uses these models; `setup_env.sh` handles all of them for you:
 
-| role            | path                                 | in git on branch `hpc`? |
-|-----------------|--------------------------------------|-------------------------|
-| row extraction  | `models/rows_v7/model.pth`           | yes (~47 MB)            |
-| column extract. | `models/cols_b/model.pth`            | yes (~47 MB)            |
-| text-line       | `models/textlines_full/model.pth`    | **NO (~49 MB)**         |
-| transcription   | `models/transcription_full/` (TrOCR) | **NO (~2.2 GB)**        |
+| role            | path                                      | how it reaches the clone      |
+|-----------------|-------------------------------------------|-------------------------------|
+| row extraction  | `models/rows_v7/model.pth`                | in git (~47 MB)               |
+| column extract. | `models/cols_b/model.pth`                 | in git (~47 MB)               |
+| text-line       | `models/textlines_full/model.pth`         | in git (~49 MB)               |
+| transcription   | `models/transcription_full/` (TrOCR)      | fetched from S3 (~2.1 GB)     |
+| BERT columns    | `models/column_classification/` (optional)| fetched from S3 (~0.4 GB)     |
 
-Only `rows_v7` and `cols_b` are committed. The text-line and transcription
-weights are excluded by the repo's `.gitignore` (`models/*`), so **a fresh
-clone will be missing them** and inference will stop immediately with
-`Model path ... does not exist`.
+The three small detection models travel in git, so a fresh clone already has
+them. The two large ones are stored as plain tarballs under
+`s3://tsatransferaurelius/weights/` and are downloaded + untarred into
+`models/` by `setup_env.sh`, **only if missing** (idempotent):
 
-`setup_env.sh` checks all four paths and prints `OK` / `MISSING` for each, so
-you will know before submitting a GPU job. Obtaining the two large models on
-the cluster is an open item for the co-author (see section 9). Note: the
-repo's `download_models.py` pulls a Google-Drive bundle and **replaces the
-entire `models/` directory**, which would delete the committed `rows_v7` /
-`cols_b` weights. Do not run it blindly.
+- `weights/transcription_full.tar`    -> `models/transcription_full/`
+- `weights/column_classification.tar` -> `models/column_classification/`
+
+This needs the same AWS credentials as the image downloads (step 3 of the
+quickstart). `setup_env.sh` uses the `aws` CLI if present, otherwise `boto3`
+(shipped in the env). If a large weight is missing and no credentials are set,
+`setup_env.sh` stops with a clear message. After fetching, it re-checks all
+four core model paths and prints `OK` / `MISSING` for each.
+
+Note: the repo's `download_models.py` (Google-Drive bundle) is a legacy path
+that **replaces the entire `models/` directory** and would delete the in-git
+weights. Do not use it on the cluster; `setup_env.sh` is the supported route.
 
 ---
 
@@ -83,7 +102,8 @@ departement's images on disk at a time:
 4. **Write** a per-departement config with `make_config.py`.
 5. **Run inference** (resumable, see section 4).
 6. **Archive** only the CSV tables plus a manifest to `results/<slug>.tar.gz`.
-7. **Optionally upload** the archive to S3 (`$TSA_RESULTS_S3`, skipped if unset).
+7. **Upload** the archive to S3 (`$TSA_RESULTS_S3`, default
+   `s3://tsatransferaurelius/results/`; set it to `""` to skip).
 8. **Delete** the raw zip and the extracted images, keeping only the archive.
 
 Because the images are deleted in step 8 before the next departement is
@@ -195,12 +215,13 @@ the whole set as independent jobs or as a strictly-sequential dependency chain.
 | variable          | default           | meaning                                            |
 |-------------------|-------------------|----------------------------------------------------|
 | `TSA_SCRATCH`     | `<repo>/scratch`  | scratch root for downloads + extracted images      |
-| `TSA_RESULTS_DIR` | `<repo>/results`  | where result archives are written                  |
-| `TSA_RESULTS_S3`  | (unset)           | `s3://bucket/prefix` to also upload each archive to |
+| `TSA_RESULTS_DIR` | `<repo>/results`  | where result archives are written locally          |
+| `TSA_RESULTS_S3`  | `s3://tsatransferaurelius/results/` | prefix to upload each archive to; set to `""` to skip upload |
 | `TSA_AWS_REGION`  | `eu-west-2`       | AWS region for the bucket                          |
 | `TSA_ENV_NAME`    | `TSA`             | conda env name                                     |
 | `TSA_KEEP_IMAGES` | `0`               | set `1` to keep the zip/images after archiving (debug) |
-| AWS creds         | (your env/`~/.aws`) | read by the AWS CLI; never stored in-repo        |
+| `TSA_NO_BERT`     | `0`               | set `1` to run without the BERT classifier (offline nodes) |
+| AWS creds         | (your env/`~/.aws`) | read by the AWS CLI / boto3; never stored in-repo |
 
 ---
 
@@ -219,6 +240,43 @@ manifest.txt                           # departement, pages expected vs produced
 manifest's `pages_expected` comes from the "Pages ready" column of
 `departments.csv`; a mismatch with `csv_tables_produced` is flagged (it usually
 means some pages failed or the zip was an incomplete copy).
+
+### BERT column classifier (optional, and an offline gotcha)
+
+When the `models/column_classification/` weights are present (fetched by
+`setup_env.sh`), `make_config.py` adds the BERT classifier block to the config
+by default, giving better column labelling:
+
+```yaml
+bert_classifier_model: models/column_classification/bert_columns.pt
+bert_classifier_tokenizer: camembert-base
+bert_classifier_label_map: models/column_classification/label_mapping.csv
+```
+
+`bert_columns.pt` is a fine-tuned **state dict**, so at load time inference
+fetches the base `camembert-base` **tokenizer and base model from HuggingFace by
+name**. Compute nodes often have **no internet**, in which case that fetch
+fails. Two consequences and two ways to handle it:
+
+- Inference degrades gracefully: if the fetch fails it logs a warning, disables
+  BERT, and finishes the departement without it. So BERT-on is safe even offline;
+  you just lose the classifier.
+- To get BERT working offline, **pre-warm the HuggingFace cache once on the
+  login node** (which usually does have internet), pointing `HF_HOME` at a
+  filesystem the compute nodes can also read:
+
+  ```bash
+  export HF_HOME=/home/$USER/.cache/huggingface     # persistent + visible to nodes
+  conda activate TSA
+  python -c "from transformers import AutoTokenizer, AutoModelForSequenceClassification; \
+             AutoTokenizer.from_pretrained('camembert-base'); \
+             AutoModelForSequenceClassification.from_pretrained('camembert-base')"
+  ```
+
+  Export the same `HF_HOME` in your sbatch script so the job finds the cache.
+
+- To skip BERT entirely (fastest, no download attempt), set `TSA_NO_BERT=1`
+  for `run_department.sh`, or pass `--no-bert` to `make_config.py`.
 
 ---
 
@@ -244,6 +302,9 @@ means some pages failed or the zip was an incomplete copy).
 - **S3 `AccessDenied` / 403.** The bucket is private; make sure the AWS
   credentials (from the xlsx "keys" sheet) are exported or in `~/.aws`. `curl`
   of the https URL alone will not work for a private object.
+- **Column labels look wrong / `Failed to initialize BERT classifier`.** The
+  BERT tokenizer could not be fetched (offline node). Pre-warm the HF cache or
+  set `TSA_NO_BERT=1`; see "BERT column classifier" in section 7.
 - **Inference seems to redo pages.** It keys resume on the output CSV path
   `output/pages/<commune>/<period>/<page>.csv`. If you move or clear the
   per-departement `output/` directory, resume state is lost.
@@ -254,13 +315,6 @@ means some pages failed or the zip was an incomplete copy).
 
 Open questions that need the project owner's input:
 
-- **Large model weights.** `textlines_full/model.pth` (~49 MB) and
-  `transcription_full/` (~2.2 GB) are not in git. How should they reach the
-  cluster: add to git/LFS, a separate S3 object, or a fixed
-  `download_models.py` that does not clobber `rows_v7`/`cols_b`? (See section 2.)
-- **S3 results upload.** Is there write access to the `tsatransferaurelius`
-  bucket (or another) for uploading result archives via `TSA_RESULTS_S3`? What
-  prefix should be used?
 - **Credential / URL expiry.** Are the keys in the xlsx long-lived, or do the
   object URLs expire (presigned)? If presigned, `department_urls.csv` will need
   refreshing.

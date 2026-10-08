@@ -60,10 +60,69 @@ print("VERIFY OK: torch.cuda.is_available() =", torch.cuda.is_available(),
 PY
 )"
 
+# --- fetch large model weights from S3 (idempotent) --------------------------
+# rows_v7, cols_b and textlines_full travel in git. The two largest weights do
+# not; they are stored as plain tarballs under s3://<bucket>/weights/ and are
+# downloaded + untarred into models/ here, only if their key file is missing.
+#   transcription_full.tar       -> models/transcription_full/model.safetensors
+#   column_classification.tar    -> models/column_classification/bert_columns.pt
+WEIGHTS_BUCKET="${TSA_WEIGHTS_BUCKET:-tsatransferaurelius}"
+WEIGHTS_PREFIX="${TSA_WEIGHTS_PREFIX:-weights}"
+AWS_REGION="${TSA_AWS_REGION:-eu-west-2}"
+
+have_aws_credentials() {
+  [ -n "${AWS_ACCESS_KEY_ID:-}" ] || [ -f "${HOME}/.aws/credentials" ] \
+    || [ -n "${AWS_PROFILE:-}" ]
+}
+
+fetch_weight() {
+  # $1 = tarball basename (no .tar); $2 = key file (repo-relative) proving presence.
+  local name="$1" keyfile="$2"
+  if [ -f "${REPO_ROOT}/${keyfile}" ]; then
+    echo "    [OK] ${name}: ${keyfile} already present; skipping."
+    return 0
+  fi
+  if ! have_aws_credentials; then
+    echo "ERROR: ${keyfile} is missing and no AWS credentials were found." >&2
+    echo "       Export AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (the 'keys' sheet" >&2
+    echo "       of TSA_download_links_S3.xlsx) or run 'aws configure', then re-run" >&2
+    echo "       scripts/hpc/setup_env.sh." >&2
+    exit 1
+  fi
+  local s3uri="s3://${WEIGHTS_BUCKET}/${WEIGHTS_PREFIX}/${name}.tar"
+  local tmp="${REPO_ROOT}/models/.${name}.tar.part"
+  echo "    downloading ${s3uri} ..."
+  if command -v aws >/dev/null 2>&1; then
+    aws s3 cp --region "${AWS_REGION}" "${s3uri}" "${tmp}"
+  else
+    echo "    (aws CLI not found; using boto3)"
+    conda run -n "${ENV_NAME}" python -c "$(cat <<'PY'
+import sys, boto3
+bucket, key, dest, region = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+boto3.client("s3", region_name=region).download_file(bucket, key, dest)
+PY
+)" "${WEIGHTS_BUCKET}" "${WEIGHTS_PREFIX}/${name}.tar" "${tmp}" "${AWS_REGION}"
+  fi
+  echo "    untarring into models/ ..."
+  # Plain tar (no gzip), created with: tar -cf X.tar -C models <dirname>
+  tar -xf "${tmp}" -C "${REPO_ROOT}/models"
+  rm -f "${tmp}"
+  if [ -f "${REPO_ROOT}/${keyfile}" ]; then
+    echo "    [OK] ${name} installed."
+  else
+    echo "ERROR: after untar, ${keyfile} is still missing (unexpected tar layout)." >&2
+    exit 1
+  fi
+}
+
+echo "==> Fetching large model weights from S3 if missing ..."
+fetch_weight transcription_full    models/transcription_full/model.safetensors
+fetch_weight column_classification models/column_classification/bert_columns.pt
+
 # --- verification: model weights present -------------------------------------
-# A fresh clone ships rows_v7 + cols_b only. The textline and transcription
-# weights are large and may not be in git; flag anything the production config
-# points at that is missing, so the user fixes it before submitting GPU jobs.
+# After the git clone + the S3 fetch above, all four core models should exist:
+# rows_v7 / cols_b / textlines_full travel in git; transcription_full is fetched
+# above. Flag anything the production config still points at that is missing.
 echo "==> Checking model weights referenced by configs/recommended_grid_v2.yaml ..."
 conda run -n "${ENV_NAME}" python -c "$(cat <<'PY'
 import sys, yaml

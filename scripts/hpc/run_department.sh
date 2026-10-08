@@ -34,6 +34,10 @@ ENV_NAME="${TSA_ENV_NAME:-TSA}"
 SCRATCH_ROOT="${TSA_SCRATCH:-${REPO_ROOT}/scratch}"
 RESULTS_DIR="${TSA_RESULTS_DIR:-${REPO_ROOT}/results}"
 AWS_REGION="${TSA_AWS_REGION:-eu-west-2}"
+# Where to upload each result archive. Defaults to the shared results prefix.
+# Use the no-colon form so that `export TSA_RESULTS_S3=""` (set but empty)
+# DISABLES upload, while leaving it unset uses the default.
+RESULTS_S3="${TSA_RESULTS_S3-s3://tsatransferaurelius/results/}"
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <Departement>" >&2
@@ -152,12 +156,23 @@ else
 fi
 
 # --- STEP 4: per-departement config ------------------------------------------
+# BERT is auto-enabled when its weights exist. On a compute node with no
+# internet (so the camembert-base tokenizer cannot be fetched) set TSA_NO_BERT=1
+# to omit it; otherwise inference still runs, just disabling BERT at load.
+# Scalar (not an array) so an empty value is safe under `set -u` on old bash.
+BERT_FLAG=""
+if [ "${TSA_NO_BERT:-0}" = "1" ]; then
+  BERT_FLAG="--no-bert"
+  echo "    TSA_NO_BERT=1: generating config with BERT disabled."
+fi
 echo "==> Writing config ${CFG_PATH} ..."
+# shellcheck disable=SC2086  # BERT_FLAG is intentionally unquoted (empty = no arg)
 python scripts/hpc/make_config.py \
   --department "${SLUG}" \
   --input-dir  "${IMG_DIR}" \
   --output-dir "${WORK_OUT}" \
-  --out        "${CFG_PATH}"
+  --out        "${CFG_PATH}" \
+  ${BERT_FLAG}
 
 # --- STEP 5: inference (per-image resume: re-running continues where it left) -
 echo "==> Running inference (resumes automatically for already-processed pages) ..."
@@ -199,15 +214,28 @@ tar -czf "${TMP_ARCHIVE}" -C "${WORK_OUT}" pages manifest.txt
 mv -f "${TMP_ARCHIVE}" "${ARCHIVE}"
 echo "    archive size: $(du -h "${ARCHIVE}" | cut -f1)"
 
-# --- STEP 7: optional upload to S3 results prefix ----------------------------
-if [ -n "${TSA_RESULTS_S3:-}" ]; then
+# --- STEP 7: upload the archive to the S3 results prefix ---------------------
+# RESULTS_S3 defaults to s3://tsatransferaurelius/results/ (see top of file);
+# set TSA_RESULTS_S3="" to skip. Uses the aws CLI if present, else boto3 (the
+# conda env is active here, so `python` has boto3).
+if [ -n "${RESULTS_S3}" ]; then
+  DEST="${RESULTS_S3%/}/${SLUG}.tar.gz"
+  echo "==> Uploading archive to ${DEST} ..."
   if command -v aws >/dev/null 2>&1; then
-    DEST="${TSA_RESULTS_S3%/}/${SLUG}.tar.gz"
-    echo "==> Uploading archive to ${DEST} ..."
     aws s3 cp --region "${AWS_REGION}" "${ARCHIVE}" "${DEST}"
   else
-    echo "WARNING: TSA_RESULTS_S3 is set but aws CLI not found; skipping upload." >&2
+    python -c "$(cat <<'PY'
+import sys, boto3
+src, dest, region = sys.argv[1], sys.argv[2], sys.argv[3]
+assert dest.startswith("s3://")
+bucket, _, key = dest[len("s3://"):].partition("/")
+boto3.client("s3", region_name=region).upload_file(src, bucket, key)
+print("    uploaded", dest)
+PY
+)" "${ARCHIVE}" "${DEST}" "${AWS_REGION}"
   fi
+else
+  echo "==> TSA_RESULTS_S3 is empty; skipping S3 upload of the archive."
 fi
 
 # --- STEP 8: reclaim scratch (delete zip + extracted images) -----------------
