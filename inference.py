@@ -205,6 +205,10 @@ class Config(BaseModel):
                                  description="Doc-UFCN input size for the textline model; "
                                              "the deployed model was trained at 1500 "
                                              "(runs/exp1 config), not 768")
+    line_norm_mean: List[int] = Field([221, 221, 221],
+                                      description="Textline model normalization mean (per channel)")
+    line_norm_std: List[int] = Field([80, 80, 80],
+                                     description="Textline model normalization std (per channel)")
     row_norm_mean: List[int] = Field([228, 228, 228],
                                      description="Row model normalization mean (per channel)")
     row_norm_std: List[int] = Field([71, 71, 71],
@@ -399,8 +403,8 @@ class Pipeline:
                 3, getattr(self.config, "line_input_size", 1500), self.device)
             self.line_model.load(
                 Path(self.config.models.line_extraction),
-                mean=[221, 221, 221],
-                std=[80, 80, 80]
+                mean=getattr(self.config, "line_norm_mean", [221, 221, 221]),
+                std=getattr(self.config, "line_norm_std", [80, 80, 80])
             )
 
             # Row/Column models. Normalization stats are per-model training

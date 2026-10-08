@@ -129,3 +129,5 @@ def test_recommended_config_parses():
     assert cfg.row_norm_mean == [190, 188, 182] and cfg.row_norm_std == [53, 52, 51]
     assert cfg.col_norm_mean == [189, 187, 183] and cfg.col_norm_std == [57, 56, 55]
     assert cfg.models.row_extraction.endswith("rows_v7/model.pth")
+    assert cfg.models.line_extraction.endswith("textlines_v6/model.pth")
+    assert cfg.line_norm_mean == [217, 216, 215] and cfg.line_norm_std == [76, 76, 75]
