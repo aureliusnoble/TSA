@@ -1,0 +1,21 @@
+department,priority,tier,size_gb,pages,pages_missing,volumes,zip_name,s3_url,in_metadata,in_s3_links
+Paris,1,Start here — complete,8.988,8812,0,29,Paris.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Paris.zip,yes,yes
+Nièvre,2,Fully intact — digitise now,33.64,24527,0,175,Nievre.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Nievre.zip,yes,yes
+Saone-et-Loire,2,Fully intact — digitise now,18.857,47532,0,375,Saone-et-Loire.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Saone-et-Loire.zip,yes,yes
+Deux-Sèvres,2,Fully intact — digitise now,17.213,8596,0,69,Deux-Sevres.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Deux-Sevres.zip,yes,yes
+Creuse,2,Fully intact — digitise now,17.126,10403,0,185,Creuse.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Creuse.zip,yes,yes
+Manche,2,Fully intact — digitise now,11.952,25799,0,157,Manche.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Manche.zip,yes,yes
+Eure-et-Loire,2,Fully intact — digitise now,9.167,19266,0,141,Eure-et-Loire.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Eure-et-Loire.zip,yes,yes
+Yvelines,2,Fully intact — digitise now,9.078,19007,0,138,Yvelines.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Yvelines.zip,yes,yes
+Haute-Vienne,2,Fully intact — digitise now,8.39,22008,0,109,Haute-Vienne.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Haute-Vienne.zip,yes,yes
+Territoire_de_Belfort,2,Fully intact — digitise now,5.547,3760,0,29,Territoire_de_Belfort.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Territoire_de_Belfort.zip,yes,yes
+Pas-de-Calais,2,Fully intact — digitise now,1.358,4561,0,49,Pas-de-Calais.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Pas-de-Calais.zip,yes,yes
+Nord,3,Incomplete — await Dropbox upload,58.089,39914,3738,309,Nord.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Nord.zip,yes,yes
+Loire,3,Incomplete — await Dropbox upload,56.696,17060,26,151,Loire.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Loire.zip,yes,yes
+Bouches-du-Rhone,3,Incomplete — await Dropbox upload,23.27,15359,692,135,Bouches-du-Rhone.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Bouches-du-Rhone.zip,yes,yes
+Landes,3,Incomplete — await Dropbox upload,7.829,18360,262,143,Landes.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Landes.zip,yes,yes
+Essonne,3,Incomplete — await Dropbox upload,7.658,3695,3285,56,Essonne.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Essonne.zip,yes,yes
+Cantal,3,Incomplete — await Dropbox upload,6.759,12588,2549,108,Cantal.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Cantal.zip,yes,yes
+Cher,3,Incomplete — await Dropbox upload,3.565,9034,1030,83,Cher.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Cher.zip,yes,yes
+Val-de-Marne,3,Incomplete — await Dropbox upload,1.538,3135,2052,38,Val-de-Marne.zip,https://tsatransferaurelius.s3.eu-west-2.amazonaws.com/Val-de-Marne.zip,yes,yes
+Seine-Saint-Denis,3,Incomplete — await Dropbox upload,0.12,248,2983,23,,,yes,no

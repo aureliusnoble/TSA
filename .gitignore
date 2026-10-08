@@ -20,3 +20,8 @@ models/*
 models.zip
 experiments/outputs/
 logs/
+
+# HPC deployment (scripts/hpc): runtime working dirs, not source
+scratch/
+results/
+configs/generated/

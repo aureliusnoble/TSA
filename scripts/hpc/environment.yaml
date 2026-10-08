@@ -1,0 +1,46 @@
+# TSA inference environment (HPC deployment).
+#
+# This is a COMPLETE copy of the repo-root environment.yaml with the extra
+# runtime dependencies that inference.py / download_models.py actually import
+# but the root file omits (they only resolved locally as transitive deps of
+# doc-ufcn / transformers and must NOT be left to chance on a fresh cluster):
+#   opencv, pydantic, rich, tqdm, pandas, pillow, requests, shapely.
+#
+# Versions are pinned to the validated local "TSA" env (verified 2026-10-08).
+# setup_env.sh creates the env from THIS file.
+name: TSA
+channels:
+  - pytorch
+  - conda-forge
+  - nvidia
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch=2.1.0
+  - pytorch-cuda
+  - torchvision=0.15.2
+  - torchaudio=2.1.0
+  - cudatoolkit=11.8
+  - numpy=1.26.2
+  - transformers=4.36.0
+  - pyyaml=6.0.1
+  - pip
+  - pip:
+      - doc-ufcn==0.2.0rc4
+      - huggingface-hub==0.20.2
+      # --- added for HPC: imported by inference.py but absent from the root env ---
+      # opencv-python-headless (NOT opencv-python): the headless wheel has no
+      # libGL dependency, which matters on compute nodes without a display.
+      # Task note suggested 4.8.1.78; the validated env uses 4.7.0.72-headless,
+      # so that is pinned here.
+      - opencv-python-headless==4.7.0.72
+      - pydantic==2.9.2
+      - rich==13.9.4
+      - tqdm==4.67.1
+      - pandas==2.2.3
+      - pillow==11.3.0
+      - requests==2.32.5
+      - shapely==1.8.5.post1
+      # doc-ufcn 0.2.0rc4 uses pkg_resources at import; setuptools 81+ removed it.
+      # The validated env has setuptools 75.6.0; keep it below 81.
+      - "setuptools<81"
