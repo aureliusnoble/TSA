@@ -20,6 +20,8 @@
 #   TSA_AWS_REGION   AWS region for S3 access             (default: eu-west-2)
 #   TSA_ENV_NAME     conda env name                       (default: TSA)
 #   TSA_KEEP_IMAGES  set to 1 to NOT delete images/zip at the end (debugging)
+#   TSA_INSTANCES    run N inference instances side by side on the job's GPU(s)
+#                    (default: 1). Faster per GPU-hour on A100/H100.
 #
 # AWS credentials are read from the standard places (env vars AWS_ACCESS_KEY_ID /
 # AWS_SECRET_ACCESS_KEY, or ~/.aws/credentials). This script NEVER embeds keys.
@@ -175,6 +177,21 @@ python scripts/hpc/make_config.py \
   ${BERT_FLAG}
 
 # --- STEP 5: inference (per-image resume: re-running continues where it left) -
+NINST="${TSA_INSTANCES:-1}"
+if [ "${NINST}" -gt 1 ]; then
+  # Several instances share the GPU(s) on disjoint shards of the images (see
+  # run_parallel_inference.py); the single pass below then finds nothing left
+  # to do, or retries any page an instance failed on.
+  echo "==> Running inference as ${NINST} parallel instances (resumable) ..."
+  # shellcheck disable=SC2086  # BERT_FLAG is intentionally unquoted (empty = no arg)
+  python scripts/hpc/run_parallel_inference.py \
+    --department "${SLUG}" \
+    --images     "${IMG_DIR}" \
+    --output     "${WORK_OUT}" \
+    --work       "${DEPT_SCRATCH}/parallel" \
+    --instances  "${NINST}" \
+    ${BERT_FLAG}
+fi
 echo "==> Running inference (resumes automatically for already-processed pages) ..."
 python inference.py --config "${CFG_PATH}"
 
