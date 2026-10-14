@@ -43,7 +43,10 @@ mkdir -p logs
 
 # --- Lichtenberg II environment ------------------------------------------------
 # Miniforge lives on scratch (no site conda); ~/.tsa-hpc/bin holds an `aws`
-# wrapper that adds --no-progress to `aws s3 cp` (keeps Slurm logs small).
+# wrapper that adds --no-progress to `aws s3 cp` (keeps Slurm logs small) and
+# runs AWS CLI v2 from a conda-forge env. An aws CLI built on the site's module
+# Python is compiled for AVX-512 and dies with "Illegal instruction" on the
+# AVX2-only DGX A100 nodes (gaoc).
 export PATH="/work/scratch/${USER}/miniforge3/condabin:${HOME}/.tsa-hpc/bin:${PATH}"
 export PYTHONNOUSERSITE=1          # ~/.local/lib/python3.10 would shadow cv2 & co. in the env
 export MPLBACKEND=Agg
@@ -112,6 +115,13 @@ echo "end: $(date -Is)  exit=${RC}  pages this segment: $(( $(count_csv) - CSV_B
 
 # Finished (archive written): drop the remaining segments of an array chain.
 if [ "${RC}" -eq 0 ] && [ -n "${SLURM_ARRAY_JOB_ID:-}" ]; then
+  scancel -t PENDING "${SLURM_ARRAY_JOB_ID}" 2>/dev/null || true
+fi
+# Failed within minutes: almost certainly systematic (e.g. a tool that cannot
+# run on this node type), so the next segments would fail the same way. Stop
+# the chain instead; resubmit once the cause is fixed (resume keeps the work).
+if [ "${RC}" -ne 0 ] && [ $(( $(date +%s) - T0 )) -lt 300 ] && [ -n "${SLURM_ARRAY_JOB_ID:-}" ]; then
+  echo "FAILED within 5 min on $(hostname): cancelling the remaining segments of ${SLURM_ARRAY_JOB_ID}" >&2
   scancel -t PENDING "${SLURM_ARRAY_JOB_ID}" 2>/dev/null || true
 fi
 exit "${RC}"
