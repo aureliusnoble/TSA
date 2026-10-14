@@ -119,18 +119,18 @@ size** in free scratch, plus a few MB for the CSV output. Largest first:
 
 | departement      | size (GB) | pages  | peak scratch (GB) |
 |------------------|-----------|--------|-------------------|
-| Nord             | 58.1      | 39,914 | ~116              |
-| Loire            | 56.7      | 17,060 | ~113              |
-| Nièvre           | 33.6      | 24,527 | ~67               |
-| Bouches-du-Rhone | 23.3      | 15,359 | ~47               |
-| Saone-et-Loire   | 18.9      | 47,532 | ~38               |
-| Deux-Sèvres      | 17.2      |  8,596 | ~34               |
-| Creuse           | 17.1      | 10,403 | ~34               |
-| Manche           | 12.0      | 25,799 | ~24               |
-| Paris            |  9.0      |  8,812 | ~18               |
+| Nord             |      69.0 | 43,652 | ~138 |
+| Loire            |      61.0 | 17,086 | ~122 |
+| Nièvre           |      36.1 | 24,527 | ~ 72 |
+| Bouches-du-Rhone |      31.8 | 16,051 | ~ 64 |
+| Saone-et-Loire   |      20.3 | 47,532 | ~ 41 |
+| Deux-Sèvres      |      18.5 |  8,596 | ~ 37 |
+| Creuse           |      18.4 | 10,403 | ~ 37 |
+| Essonne          |      13.1 |  6,980 | ~ 26 |
+| Manche           |      12.8 | 25,799 | ~ 26 |
 
 Full figures for all 20 departements are in `departments.csv`. If your scratch
-quota is below ~120 GB, you can still run every departement **sequentially**
+quota is below ~140 GB, you can still run every departement **sequentially**
 (the default): only one is on disk at a time. Running several SLURM jobs in
 parallel multiplies the requirement by the number of concurrent jobs.
 
@@ -320,10 +320,10 @@ Open questions that need the project owner's input:
   refreshing.
 - **Bucket lifecycle.** Is there a lifecycle/expiry policy on the source zips we
   should be aware of before a long sequential run?
-- **Departements not yet uploaded.** Priority-3 departements have missing pages
-  in the current transfer ("await Dropbox upload" in the metadata). Confirm
-  whether the S3 zips are the truncated copies or the complete re-uploads before
-  treating their output as final.
+- RESOLVED 2026-10-14: all 20 departement zips (including Seine-Saint-Denis,
+  which previously had none) were re-uploaded complete on 2026-10-12/13; the
+  inventory CSVs reflect the live bucket sizes and completed page counts. The
+  remaining open questions are credential/URL expiry and bucket lifecycle only.
 
 ### Metadata vs S3 discrepancies
 
