@@ -16,12 +16,18 @@
 models:
   transcription:
     path: "models/transcription_full"
-    batch_size: 16
+    # 32: with the cache on, decoding is host-bound on V100/A100/H100 and bigger
+    # batches need fewer decode steps (est. ~10% faster than 16 on A100). On a
+    # T4 16 is fastest. Batch size changes ~0.1% of lines (fp16 rounding).
+    batch_size: 32
     precision: "half"
-    num_beams: 1
-    # Decoder key/value cache (overrides use_cache: false in the model's
-    # generation_config.json; beam search settings there are unchanged).
-    # 1.5-1.7x faster transcription on a T4; 0.22% of lines differ (fp16).
+    # Decoding follows models/transcription_full/generation_config.json:
+    # 2-beam search, no_repeat_ngram_size 3, length_penalty 2.0. That is what
+    # the validation scores above were produced with. (A former `num_beams: 1`
+    # key here was never read by the code; greedy decoding was checked on
+    # 3,925 lines and is worse, especially on dates and numbers.)
+    # Decoder key/value cache (overrides use_cache: false in generation_config.json):
+    # 1.7x faster on a T4, 5 of 3,925 lines changed (fp16 rounding).
     use_cache: true
 
   line_extraction: "models/textlines_v6/model.pth"
