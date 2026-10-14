@@ -100,6 +100,10 @@ def configure_logging(verbose: bool = False):
     
     return pipeline_logger
 
+# Input image types picked up by the pipeline (rglob is case-sensitive, so the
+# upper-case variants are searched separately in _get_pending_images).
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.tif', '.tiff')
+
 def extract_bounding_boxes_and_avg_y2(polygons_data):
     """
     Extract bounding boxes from a list of polygon data and calculate average y2 coordinate.
@@ -677,8 +681,16 @@ class Pipeline:
                         year_range = rel_path.parts[2]
                         # Remove .csv extension from filename
                         filename = csv_path.stem
-                        if filename.endswith('.jpg'):
-                            filename = filename[:-4]  # Remove .jpg suffix
+                        # export_transcription only strips ".jpg", so other image
+                        # types keep their extension ("page.jpeg.csv"). Strip any
+                        # image extension and re-sanitize so the key matches the
+                        # one built in _get_pending_images() from image_path.stem.
+                        lower = filename.lower()
+                        for ext in IMAGE_EXTENSIONS:
+                            if lower.endswith(ext):
+                                filename = filename[:-len(ext)]
+                                break
+                        filename = self._sanitize_filename(filename)
                         processed_files.add((municipality, year_range, filename))
                 except Exception as e:
                     logger.warning(f"Error processing path {csv_path}: {e}")
@@ -702,7 +714,7 @@ class Pipeline:
         
         # Look for all supported image formats
         all_images = []
-        for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+        for ext in IMAGE_EXTENSIONS:
             all_images.extend(list(input_dir.rglob(f"*{ext}")))
             # Also check for uppercase extensions
             all_images.extend(list(input_dir.rglob(f"*{ext.upper()}"))) 
