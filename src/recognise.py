@@ -12,7 +12,8 @@ class TextRecognizer:
                  device=None,
                  batch_size=128,
                  precision='half',
-                 beam_num=1):
+                 beam_num=1,
+                 use_cache=None):
         """
         Initialize the text recognizer.
         
@@ -22,11 +23,15 @@ class TextRecognizer:
             batch_size (int, optional): Batch size for processing. Default: 20
             precision (str, optional): Precision mode ('full', 'half', 'autocast'). Default: 'half'
             beam_num (int, optional): Number of beams for beam search. Default: 2
+            use_cache (bool, optional): Override the decoder key/value cache setting
+                of the model's generation_config.json. None keeps the model's own
+                setting.
         """
         self.model_path = model_path
         self.batch_size = batch_size
         self.precision = precision
         self.beam_num = beam_num
+        self.use_cache = use_cache
         
         # Set device
         if device is None:
@@ -75,7 +80,12 @@ class TextRecognizer:
         else:
             model.config.length_penalty = 2
             model.config.early_stopping = True
-        
+
+        # generate() follows generation_config.json, which overrides the
+        # model.config values above; only the cache setting is exposed here.
+        if self.use_cache is not None:
+            model.generation_config.use_cache = bool(self.use_cache)
+
         # Move model to device and set precision
         model.to(self.device)
         if self.precision == 'half' and not self.device.startswith('cpu'):

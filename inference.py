@@ -442,6 +442,7 @@ class Pipeline:
                     "batch_size": transcription_config.get("batch_size", 20),  # Changed default from 20 to match reference
                     "precision": transcription_config.get("precision", "half"),
                     "beam_num": transcription_config.get("beam_num", 1),  # Changed default to 1 for faster greedy decoding
+                    "use_cache": transcription_config.get("use_cache"),  # None: keep generation_config.json
                     "device": str(self.device)  # Convert device to string
                 }
             
