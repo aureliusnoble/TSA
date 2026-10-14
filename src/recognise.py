@@ -109,7 +109,13 @@ class TextRecognizer:
             single_image = True
         
         # Process the batch as received - no sub-batching
-        pixel_values = self.processor(images, return_tensors="pt").pixel_values.to(self.device)
+        # PIL crops are always height x width x channels. State it explicitly:
+        # otherwise the processor infers the layout from the first image, and a
+        # crop only 1 or 3 px tall is taken as channels-first, failing the whole
+        # batch ("Cannot handle this data type").
+        pixel_values = self.processor(
+            images, return_tensors="pt", input_data_format="channels_last"
+        ).pixel_values.to(self.device)
         if self.precision == 'half' and not self.device.startswith('cpu'):
             pixel_values = pixel_values.half()
         
