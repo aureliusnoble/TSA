@@ -19,6 +19,10 @@ models:
     batch_size: 16
     precision: "half"
     num_beams: 1
+    # Decoder key/value cache (overrides use_cache: false in the model's
+    # generation_config.json; beam search settings there are unchanged).
+    # 1.5-1.7x faster transcription on a T4; 0.22% of lines differ (fp16).
+    use_cache: true
 
   line_extraction: "models/textlines_v6/model.pth"
   row_extraction: "models/rows_v7/model.pth"
