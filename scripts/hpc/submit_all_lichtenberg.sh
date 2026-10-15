@@ -27,19 +27,20 @@ mkdir -p logs
 # were re-uploaded with more volumes); use the counts from the zips.
 declare -A ZIP_PAGES=([Pas-de-Calais]=8612 [Bouches-du-Rhone]=19745)
 
-# Job shape by size:
-#  * small (<11k pages): 24 h jobs (partition acc, any GPU node), 1-2 GPUs,
-#    sized to finish within one day;
-#  * large: 7-day jobs (partition acc_long), which keep their GPUs for the whole
-#    run; our fair-share priority drops quickly once usage builds up, so
-#    re-queueing every 24 h would lose GPUs to other users. 1-3 GPUs by size.
+# Job shape by size: every job is a chain of 24 h segments (partition acc).
+# One-day jobs can use every GPU node (acc_long excludes several) and are much
+# easier for the backfill scheduler to place, which matters once our fair-share
+# priority has dropped. 7-day jobs keep their GPUs longer but start later.
+# Small departements get 2 GPUs to finish within about a day; mid-size ones 1
+# GPU (single GPUs are found fastest); the largest 2.
+# Segments: expected days at ~230 pages/h per GPU, plus two spare.
 shape_for() {  # pages -> "gpus time segments"
-  local p=$1
-  if   [ "$p" -lt  5000 ]; then echo "1 1-00:00:00 3"
-  elif [ "$p" -lt 11000 ]; then echo "2 1-00:00:00 3"
-  elif [ "$p" -lt 20000 ]; then echo "1 7-00:00:00 2"
-  elif [ "$p" -lt 40000 ]; then echo "2 7-00:00:00 2"
-  else                          echo "3 7-00:00:00 2"; fi
+  local p=$1 g
+  if   [ "$p" -lt  5000 ]; then g=1
+  elif [ "$p" -lt 11000 ]; then g=2
+  elif [ "$p" -lt 20000 ]; then g=1
+  else                          g=2; fi
+  echo "${g} 1-00:00:00 $(( (p + g*230*23 - 1) / (g*230*23) + 2 ))"
 }
 
 active=$(squeue -h -u "${USER}" -o '%j' | sort -u)
