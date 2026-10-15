@@ -113,7 +113,14 @@ def main() -> int:
 
     procs = []
     for i in range(k):
-        shard = work / "shards" / f"s{i}"
+        # Name the shard root like the original input dir: the pipeline takes the
+        # "commune" from the image's grandparent dir, which for zips without a
+        # commune level (Paris: Period/page.jpg) is the input dir itself. Shard
+        # outputs then land exactly where a single-instance run puts them.
+        shard_parent = work / "shards" / f"s{i}"
+        if shard_parent.exists():
+            shutil.rmtree(shard_parent)
+        shard = shard_parent / images.name
         build_shard(images, rels[i::k], shard)
         run_dir = work / f"run{i}"
         build_rundir(run_dir)
