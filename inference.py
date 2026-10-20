@@ -661,6 +661,17 @@ class Pipeline:
         
         return sanitized
 
+    def _export_stem(self, image_name: str) -> str:
+        """CSV file stem that run() + export_transcription() write for an image.
+
+        Must mirror tsa_utils.PageReconstruction.export_transcription(), which
+        gets the sanitized image name and strips only ".jpg". So "page.jpg"
+        becomes "page.csv" while "page.jpeg" stays "page.jpeg.csv", and the two
+        stay distinct when both exist in one folder (as in some zips).
+        """
+        filename = self._sanitize_filename(image_name)
+        return filename.strip().replace(" ", "_").replace("\n", "").replace(".jpg", "")
+
     def _get_processed_files(self) -> Set[Tuple[str, str, str]]:
         """
         Scan output directory for already processed files
@@ -680,18 +691,9 @@ class Pipeline:
                     if len(rel_path.parts) >= 3:
                         municipality = rel_path.parts[1]
                         year_range = rel_path.parts[2]
-                        # Remove .csv extension from filename
+                        # Key on the CSV name itself; _get_pending_images() predicts
+                        # that name for each image with _export_stem().
                         filename = csv_path.stem
-                        # export_transcription only strips ".jpg", so other image
-                        # types keep their extension ("page.jpeg.csv"). Strip any
-                        # image extension and re-sanitize so the key matches the
-                        # one built in _get_pending_images() from image_path.stem.
-                        lower = filename.lower()
-                        for ext in IMAGE_EXTENSIONS:
-                            if lower.endswith(ext):
-                                filename = filename[:-len(ext)]
-                                break
-                        filename = self._sanitize_filename(filename)
                         processed_files.add((municipality, year_range, filename))
                 except Exception as e:
                     logger.warning(f"Error processing path {csv_path}: {e}")
@@ -737,7 +739,7 @@ class Pipeline:
                 # Get relative path components
                 municipality = image_path.parent.parent.name
                 year_range = image_path.parent.name
-                filename = self._sanitize_filename(image_path.stem)
+                filename = self._export_stem(image_path.name)
                 
                 # Check if file has already been processed
                 if (municipality, year_range, filename) in processed_files:
