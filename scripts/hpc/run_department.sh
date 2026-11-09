@@ -153,7 +153,9 @@ else
 
   echo "==> Unzipping into ${IMG_DIR} ..."
   mkdir -p "${IMG_DIR}"
-  unzip -o -q "${ZIP_PATH}" -d "${IMG_DIR}"
+  # -DD: give extracted files the current time. Restored zip timestamps can be
+  # months old, and some scratch filesystems purge files by modification time.
+  unzip -o -q -DD "${ZIP_PATH}" -d "${IMG_DIR}"
   touch "${DEPT_SCRATCH}/.extracted"
 fi
 

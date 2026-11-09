@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Submit every departement (priority order of departments.csv) to SLURM on
-# Lichtenberg II: small ones as 24 h jobs, large ones as 7-day jobs (see shape_for).
+# Lichtenberg II as chains of 24 h jobs (see shape_for).
 #
 #   bash scripts/hpc/submit_all_lichtenberg.sh            # submit
 #   bash scripts/hpc/submit_all_lichtenberg.sh --dry-run  # sbatch --test-only
+#   options: --only REGEX (departement names), --after JOBID[:JOBID] (afterok dependency)
 #
 # - GPU type is flexible (any V100/A100/H100): --gres=gpu:nvd:N with the
 #   Blackwell rtx6000 nodes (gboe) excluded, as torch 2.1/cu118 can't use them.
@@ -20,12 +21,23 @@ cd "${REPO_ROOT}"
 SBATCH=/opt/slurm/current/bin/sbatch      # real sbatch: clean --parsable output
 RESULTS_DIR="${TSA_RESULTS_DIR:-${REPO_ROOT}/results}"
 DRY=""
-[ "${1:-}" = "--dry-run" ] && DRY="--test-only"
+ONLY=""         # --only REGEX: submit only departements whose name matches
+DEP=""          # --after JOBID[:JOBID...]: start only after these jobs succeed
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY="--test-only" ;;
+    --only)    ONLY="$2"; shift ;;
+    --after)   DEP="--dependency=afterok:$2"; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 mkdir -p logs
 
 # Page counts in departments.csv are stale for two departements (the zips
 # were re-uploaded with more volumes); use the counts from the zips.
-declare -A ZIP_PAGES=([Pas-de-Calais]=8612 [Bouches-du-Rhone]=19745)
+declare -A ZIP_PAGES=([Pas-de-Calais]=8612 [Bouches-du-Rhone]=19745
+  [Nievre_v2]=1597)   # Nievre_v2: only the re-scraped pages are processed; the rest are seeded
 
 # Job shape by size: every job is a chain of 24 h segments (partition acc).
 # One-day jobs can use every GPU node (acc_long excludes several) and are much
@@ -49,6 +61,7 @@ while IFS=',' read -r dept _pri _tier _sz pages _pm _v zipn url _im inlinks; do
   [ -z "${url}" ] && continue
   slug="${zipn%.zip}"
   name="tsa-${slug}"
+  if [ -n "${ONLY}" ] && ! [[ "${slug}" =~ ${ONLY} ]]; then continue; fi
   if [ -f "${RESULTS_DIR}/${slug}.tar.gz" ]; then
     echo "skip ${dept}: archive exists"; continue
   fi
@@ -57,7 +70,7 @@ while IFS=',' read -r dept _pri _tier _sz pages _pm _v zipn url _im inlinks; do
   fi
   pages="${ZIP_PAGES[${slug}]:-${pages}}"
   read -r g time segs <<<"$(shape_for "${pages}")"
-  out=$(${SBATCH} ${DRY} --parsable -J "${name}" --array="1-${segs}%1" -t "${time}" \
+  out=$(${SBATCH} ${DRY} ${DEP} --parsable -J "${name}" --array="1-${segs}%1" -t "${time}" \
           -c "${g}" --mem-per-cpu=12000 --gres="gpu:nvd:${g}" -x 'gboe[0001-0008]' \
           --export="ALL,TSA_INSTANCES=${g}" \
           scripts/hpc/run_department.sbatch "${dept}" 2>&1)
