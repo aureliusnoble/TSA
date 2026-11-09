@@ -153,9 +153,11 @@ else
 
   echo "==> Unzipping into ${IMG_DIR} ..."
   mkdir -p "${IMG_DIR}"
-  # -DD: give extracted files the current time. Restored zip timestamps can be
-  # months old, and some scratch filesystems purge files by modification time.
-  unzip -o -q -DD "${ZIP_PATH}" -d "${IMG_DIR}"
+  # Python's zipfile instead of UnZip 6.0, which refuses zip64 archives with
+  # 16-byte data descriptors as "possible zip bombs". Same names as
+  # `unzip -o -q -DD`, current timestamps (some scratch filesystems purge by
+  # modification time), every file's CRC verified. See extract_zip.py.
+  python scripts/hpc/extract_zip.py "${ZIP_PATH}" "${IMG_DIR}"
   touch "${DEPT_SCRATCH}/.extracted"
 fi
 
